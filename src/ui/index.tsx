@@ -449,6 +449,39 @@ export const App = ({
         </Box>
       </Box>
       <Overlays workbench={workbench} width={width} height={height} />
+      {workbench.hoverTip &&
+      !workbench.menu &&
+      !workbench.dialog &&
+      !workbench.palette ? (
+        <Box
+          position="absolute"
+          marginTop={Math.max(
+            0,
+            workbench.hoverTip.y + 1 < height - 3
+              ? workbench.hoverTip.y + 1
+              : workbench.hoverTip.y - 3,
+          )}
+          marginLeft={Math.max(
+            0,
+            Math.min(
+              workbench.hoverTip.x,
+              width - Math.min(width - 2, widthOf(workbench.hoverTip.text) + 4),
+            ),
+          )}
+          width={Math.min(width - 2, widthOf(workbench.hoverTip.text) + 4)}
+          borderStyle="round"
+          borderColor={palette.border}
+          backgroundColor={palette.background}
+          borderBackgroundColor={palette.background}
+        >
+          <Text
+            color={workbench.hoverTip.color ?? palette.text}
+            wrap="truncate"
+          >
+            {` ${workbench.hoverTip.text}`}
+          </Text>
+        </Box>
+      ) : null}
     </Box>
   );
 };
@@ -711,6 +744,13 @@ const TabStrip = ({
                 }}
                 onRightClick={(event) =>
                   workbench.tabMenu(group, index, event.x, event.y)
+                }
+                onHover={(event) =>
+                  workbench.hover(
+                    tab.path
+                      ? { text: tab.path, x: event.x, y: event.y }
+                      : null,
+                  )
                 }
                 onMiddleClick={() => {
                   workbench.focusGroup(group);

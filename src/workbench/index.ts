@@ -309,6 +309,9 @@ const revealInFinder = (path: string) => {
 /** How often git's status is read again, for commits and staging made elsewhere (the watcher skips `.git`). */
 const GIT_POLL_MS = 3000;
 
+/** How long the pointer rests before a tooltip shows, as VS Code's `editor.hover.delay`. */
+const HOVER_DELAY_MS = 300;
+
 /** The most suggestions the list shows, as VS Code's suggest widget. */
 const SUGGESTIONS = 12;
 
@@ -2498,6 +2501,32 @@ export class Workbench {
   reopenClosed() {
     const path = this.closed.pop();
     if (path) this.open(path);
+  }
+
+  /** A tooltip near the pointer, as VS Code's hover: a problem's message, a tab's path. */
+  hoverTip: { text: string; x: number; y: number; color?: string } | null =
+    null;
+  private hoverTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /**
+   * Shows a tooltip after the pointer rests a moment, as VS Code's `editor.hover.delay`; `null` hides it.
+   * @param tip the text and the screen cell to show it at
+   */
+  hover(tip: { text: string; x: number; y: number; color?: string } | null) {
+    if (this.hoverTimer) clearTimeout(this.hoverTimer);
+    if (!tip) {
+      if (this.hoverTip) {
+        this.hoverTip = null;
+        this.changed();
+      }
+      return;
+    }
+    if (this.hoverTip?.text === tip.text) return;
+    this.hoverTip = null;
+    this.hoverTimer = setTimeout(() => {
+      this.hoverTip = tip;
+      this.changed();
+    }, HOVER_DELAY_MS);
   }
 
   /** The suggestion list at the cursor, as VS Code's IntelliSense with word-based suggestions and snippets. */

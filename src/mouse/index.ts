@@ -17,6 +17,7 @@ export interface MouseEvent {
     | "down"
     | "up"
     | "drag"
+    | "move"
     | "wheelUp"
     | "wheelDown"
     | "wheelLeft"
@@ -41,8 +42,8 @@ export interface ClickTiming {
   doubleClickCells: number;
 }
 
-const ENABLE = "\x1b[?1000h\x1b[?1002h\x1b[?1006h";
-const DISABLE = "\x1b[?1000l\x1b[?1002l\x1b[?1006l";
+const ENABLE = "\x1b[?1000h\x1b[?1002h\x1b[?1003h\x1b[?1006h";
+const DISABLE = "\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l";
 const REPORT = /\x1b\[<(\d+);(\d+);(\d+)([Mm])/g;
 /** The start of a mouse report the chunk ends in; it is completed by the next chunk. */
 const PARTIAL_REPORT = /\x1b\[<[\d;]*$/;
@@ -94,7 +95,9 @@ const toEvent = (
     kind: wheel
       ? wheelKinds[buttonCode]
       : (code & 32) !== 0
-        ? "drag"
+        ? buttonCode === 3
+          ? "move"
+          : "drag"
         : final === "m"
           ? "up"
           : "down",
