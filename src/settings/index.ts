@@ -116,6 +116,30 @@ const KEYS: [string, string, string, string][] = [
   ],
   ["findPrevious", "Edit", "Find Previous", "Go to the previous match."],
   [
+    "markdownPreview",
+    "View",
+    "Open Markdown Preview",
+    "Show the Markdown file as a document beside it, following every edit.",
+  ],
+  [
+    "goToSymbol",
+    "Go",
+    "Go to Symbol in Editor",
+    "Quick Open with @: the functions, classes, headings and rules of the file.",
+  ],
+  [
+    "nextProblem",
+    "Go",
+    "Next Problem",
+    "Go to the next ESLint problem in the file.",
+  ],
+  [
+    "previousProblem",
+    "Go",
+    "Previous Problem",
+    "Go to the previous ESLint problem in the file.",
+  ],
+  [
     "search",
     "Edit",
     "Find in Files",
@@ -261,6 +285,33 @@ export const SETTINGS: SettingSpec[] = [
     "boolean",
   ),
   setting(
+    "settings.autoSave",
+    "Text Editor",
+    "Files",
+    "Auto Save",
+    "Controls auto save of editors that have unsaved changes.",
+    "enum",
+    {
+      common: true,
+      choices: [
+        {
+          value: "off",
+          description: "An editor with changes is never automatically saved.",
+        },
+        {
+          value: "afterDelay",
+          description:
+            "An editor with changes is automatically saved after a short delay.",
+        },
+        {
+          value: "onFocusChange",
+          description:
+            "An editor with changes is automatically saved when it loses focus.",
+        },
+      ],
+    },
+  ),
+  setting(
     "settings.formatOnSave",
     "Text Editor",
     "Formatting",
@@ -312,6 +363,55 @@ export const SETTINGS: SettingSpec[] = [
     "boolean",
   ),
   setting(
+    "settings.bracketPairColorization",
+    "Text Editor",
+    "Cursor",
+    "Bracket Pair Colorization",
+    "Colors matching brackets by their nesting depth.",
+    "boolean",
+  ),
+  setting(
+    "settings.guides",
+    "Text Editor",
+    "Cursor",
+    "Indent Guides",
+    "Draws a guide at every indent level.",
+    "boolean",
+  ),
+  setting(
+    "settings.minimap",
+    "Text Editor",
+    "Cursor",
+    "Minimap",
+    "Shows an outline of the whole file at the right edge; click or drag it to scroll.",
+    "boolean",
+  ),
+  setting(
+    "settings.eslint",
+    "Text Editor",
+    "Cursor",
+    "ESLint",
+    "Lints JavaScript and TypeScript with the project's ESLint and shows each problem at the end of its line, as ESLint with Error Lens does.",
+    "boolean",
+    { common: true },
+  ),
+  setting(
+    "settings.snippets",
+    "Text Editor",
+    "Cursor",
+    "Tab Completion",
+    "Expands a snippet's prefix on Tab, with the snippets of your VS Code extensions and your own.",
+    "boolean",
+  ),
+  setting(
+    "settings.stickyScroll",
+    "Text Editor",
+    "Cursor",
+    "Sticky Scroll",
+    "Shows the lines that open the blocks around the top of the editor, pinned while you scroll.",
+    "boolean",
+  ),
+  setting(
     "settings.wheelLines",
     "Text Editor",
     "Cursor",
@@ -353,6 +453,22 @@ export const SETTINGS: SettingSpec[] = [
       description,
       "key",
     ),
+  ),
+  setting(
+    "limits.lintDelayMs",
+    "Advanced",
+    "Timing",
+    "Lint Delay",
+    "Milliseconds after the last change before ESLint runs.",
+    "number",
+  ),
+  setting(
+    "limits.autoSaveDelayMs",
+    "Advanced",
+    "Timing",
+    "Auto Save Delay",
+    "Milliseconds after the last change before Auto Save saves.",
+    "number",
   ),
   setting(
     "limits.highlightChunkLines",

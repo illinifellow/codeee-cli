@@ -22,6 +22,7 @@ import { fit, widthOf } from "@/text";
 import { availableUpdate, installUpdate } from "@/update";
 import type { Workbench } from "@/workbench";
 import { CodeView } from "./editor";
+import { MarkdownView } from "./markdown";
 import { SearchView } from "./search";
 import { SettingsPage } from "./settings";
 import { useTheme } from "./theme";
@@ -304,6 +305,14 @@ export const App = ({
               workbench={workbench}
               width={mainWidth}
               height={editorRows}
+            />
+          ) : tab.kind === "preview" ? (
+            <MarkdownView
+              workbench={workbench}
+              tab={tab}
+              width={mainWidth}
+              height={editorRows}
+              version={version}
             />
           ) : tab.kind === "settings" ? (
             <SettingsPage
@@ -783,6 +792,21 @@ const StatusBar = ({
         ["UTF-8", undefined],
         [document.eol === "\n" ? "LF" : "CRLF", undefined],
         [languageName(tab!.language), undefined],
+        ...(tab?.diagnostics?.length
+          ? ([
+              [
+                `✖ ${tab.diagnostics.filter((problem) => problem.severity === "error").length} ⚠ ${tab.diagnostics.filter((problem) => problem.severity === "warning").length}`,
+                () => {
+                  const next =
+                    tab.diagnostics!.find(
+                      (problem) => problem.line > document.cursor.line,
+                    ) ?? tab.diagnostics![0];
+                  document.setCursor({ line: next.line, column: next.start });
+                  workbench.afterEdit();
+                },
+              ],
+            ] as [string, (() => void) | undefined][])
+          : []),
       ]
     : [];
   return (

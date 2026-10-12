@@ -29,8 +29,10 @@ export interface ColorTokens {
   header: string;
   /** Input fields. */
   field: string;
-  /** Errors, warnings and dangerous buttons. */
+  /** Errors and dangerous buttons. */
   danger: string;
+  /** Warnings. */
+  warning: string;
   lineHighlight: string;
   gutter: string;
   gutterActive: string;
@@ -46,6 +48,10 @@ export interface ColorTokens {
   /** Unsaved files. */
   modified: string;
   added: string;
+  /** Bracket pair colours by depth, cycled. */
+  brackets: string[];
+  /** Indent guides. */
+  guide: string;
 }
 
 /** Characters for icons and marks. */
@@ -73,6 +79,7 @@ export interface GlyphTokens {
   replaceAll: string;
   error: string;
   update: string;
+  guide: string;
   dropdown: string;
   /** The settings tab's icon. */
   settings: string;
@@ -209,6 +216,7 @@ export const editorColors = (
     ),
     field: pick(base.field, "input.background"),
     danger: pick(base.danger, "errorForeground", "editorError.foreground"),
+    warning: pick(base.warning, "editorWarning.foreground"),
     lineHighlight: pick(
       base.lineHighlight,
       "editor.lineHighlightBackground",
@@ -237,6 +245,18 @@ export const editorColors = (
       base.added,
       "gitDecoration.untrackedResourceForeground",
       "editorGutter.addedBackground",
+    ),
+    brackets: base.brackets.map(
+      (color, index) =>
+        opaque(
+          vs[`editorBracketHighlight.foreground${index + 1}`],
+          background,
+        ) ?? color,
+    ),
+    guide: pick(
+      base.guide,
+      "editorIndentGuide.background1",
+      "editorIndentGuide.background",
     ),
   };
 };

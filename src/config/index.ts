@@ -53,6 +53,10 @@ export type KeyBindings = Record<
   | "duplicateLine"
   | "comment"
   | "format"
+  | "goToSymbol"
+  | "markdownPreview"
+  | "nextProblem"
+  | "previousProblem"
   | "search"
   | "replaceInFiles"
   | "moveLineUp"
@@ -83,6 +87,8 @@ export interface Limits {
   updateCheckHours: number;
   /** Files whose last cursor position is kept. */
   rememberedPositions: number;
+  lintDelayMs: number;
+  autoSaveDelayMs: number;
   /** Folders the start screen offers. */
   recentFolders: number;
 }
@@ -105,6 +111,20 @@ export interface EditorSettings {
   lineBlame: boolean;
   /** Draws colour literals (`#ff905c`, `rgb(…)`) on their own colour, as Color Highlight does. */
   colorDecorators: boolean;
+  /** Colours matching brackets by depth, as VS Code's `editor.bracketPairColorization`. */
+  bracketPairColorization: boolean;
+  /** Draws indent guides. */
+  guides: boolean;
+  /** Shows the minimap at the editor's right edge. */
+  minimap: boolean;
+  /** Pins the lines that open the blocks around the top of the editor, as VS Code's sticky scroll. */
+  stickyScroll: boolean;
+  /** Lints JavaScript and TypeScript with the project's ESLint and shows the problems at line ends, as Error Lens. */
+  eslint: boolean;
+  /** Expands snippet prefixes on Tab. */
+  snippets: boolean;
+  /** `off`, `afterDelay` or `onFocusChange`, as VS Code's `files.autoSave`. */
+  autoSave: string;
   autoIndent: boolean;
   autoClosingBrackets: boolean;
   trimTrailingWhitespace: boolean;
@@ -169,6 +189,7 @@ const FORMATTING = {
 
 /** Allowed values of the settings that take one of a few words. */
 const CHOICES: Record<string, readonly string[]> = {
+  "settings.autoSave": ["off", "afterDelay", "onFocusChange"],
   "settings.iconTheme": ["vscode", "none"],
 };
 

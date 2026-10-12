@@ -24,7 +24,10 @@ codeee is the sibling of [gittt](https://github.com/illinifellow/gittt-cli): git
 - **Find and replace:** in the file with case, whole-word and regular-expression options; across the folder in the Search view with files to include and exclude, and Replace All.
 - **Format Document** with Prettier: the project's Prettier and configuration, or the one the VS Code extension bundles, so the result is what VS Code gives. Optional format on save.
 - **From neovim:** lines kept around the cursor while scrolling, relative line numbers, jump to the matching bracket, the last cursor position of every file.
-- **From VS Code extensions:** the current line's blame (GitLens), colour literals drawn on their colour (Color Highlight).
+- **From VS Code extensions:** the current line's blame (GitLens); colour literals drawn on their colour (Color Highlight); ESLint problems underlined and written at the line's end with counts in the status bar (ESLint, Error Lens); the snippets of your installed extensions and your own, expanded on Tab; Markdown Preview that follows every edit.
+- **As VS Code draws code:** indent guides, bracket pair colours, the minimap, sticky scroll of the enclosing blocks, git change marks beside the line numbers.
+- **Go to Symbol:** `@` in Quick Open lists the file's functions, classes, headings and rules; `F8` walks the problems.
+- **Auto save** after a delay or on focus change, as `files.autoSave`.
 - **Settings page** like VS Code's: search, table of contents, every option with its description and control, modified marks, reset, and the JSON file one click away.
 - **Mouse everywhere:** click, double-click to select a word, drag to select, wheel, right-click menus, a draggable explorer edge.
 
@@ -58,26 +61,30 @@ codeee src/app.ts   # opens the file's folder with the file in a tab
 
 ## Keyboard
 
-| Key                 | Action                                                      |
-| ------------------- | ----------------------------------------------------------- |
-| `^S` `^N` `^W` `^Q` | save, new file, close tab, quit (asks about unsaved files)  |
-| `^P`                | Quick Open: files; `:` line; `>` commands                   |
-| `^G`                | go to line                                                  |
-| `^F` `^R`           | find, replace in the file                                   |
-| `F3` `⇧F3`          | next, previous match; the word at the cursor with no search |
-| `^T` `⌥^T`          | search, replace across the folder                           |
-| `⌥C` `⌥W` `⌥R`      | match case, whole word, regular expression                  |
-| `^Z` `^Y`           | undo, redo                                                  |
-| `^C` `^X` `^V`      | copy, cut, paste (the whole line when nothing is selected)  |
-| `^A` `^L`           | select all, expand line selection                           |
-| `^/` `^K` `^D`      | toggle comment, delete line, copy line down                 |
-| `⌥↑` `⌥↓`           | move line                                                   |
-| `^\`                | jump to the matching bracket                                |
-| `⌥⇧F`               | Format Document                                             |
-| `^B` `^E`           | toggle the explorer, focus it                               |
-| `^O`                | settings                                                    |
-| `^PgUp` `^PgDn`     | previous, next tab                                          |
-| `^←` `^→` `⌥←` `⌥→` | word left, right; with `⇧` select                           |
+| Key                     | Action                                                      |
+| ----------------------- | ----------------------------------------------------------- |
+| `^S` `^N` `^W` `^Q`     | save, new file, close tab, quit (asks about unsaved files)  |
+| `^P`                    | Quick Open: files; `:` line; `>` commands                   |
+| `^G`                    | go to line                                                  |
+| `^F` `^R`               | find, replace in the file                                   |
+| `F3` `⇧F3`              | next, previous match; the word at the cursor with no search |
+| `^T` `⌥^T`              | search, replace across the folder                           |
+| `⌥C` `⌥W` `⌥R`          | match case, whole word, regular expression                  |
+| `^Z` `^Y`               | undo, redo                                                  |
+| `^C` `^X` `^V`          | copy, cut, paste (the whole line when nothing is selected)  |
+| `^A` `^L`               | select all, expand line selection                           |
+| `^/` `^K` `^D`          | toggle comment, delete line, copy line down                 |
+| `⌥↑` `⌥↓`               | move line                                                   |
+| `^\`                    | jump to the matching bracket                                |
+| `⌥⇧F` (`⌥⌘L` in iTerm2) | Format Document                                             |
+| `^]`                    | Go to Symbol                                                |
+| `F8` `⇧F8`              | next, previous problem                                      |
+| `⌥V`                    | Markdown Preview                                            |
+| `Tab`                   | expand a snippet prefix, else indent                        |
+| `^B` `^E`               | toggle the explorer, focus it                               |
+| `^O`                    | settings                                                    |
+| `^PgUp` `^PgDn`         | previous, next tab                                          |
+| `^←` `^→` `⌥←` `⌥→`     | word left, right; with `⇧` select                           |
 
 Every key is set in the settings. Terminals do not pass Cmd to programs; map a Cmd shortcut to one of these in the terminal's key settings to keep your VS Code habits.
 

@@ -307,7 +307,8 @@ export const loadAssociations = async () => {
 };
 
 /** @returns the shiki grammar for a language id from VS Code or the tables, or `null` when shiki has none */
-const toShiki = (id: string | undefined) => {
+/** @returns the shiki grammar for a VS Code language id, or `null` when shiki has none */
+export const toShiki = (id: string | undefined) => {
   if (!id) return null;
   const mapped = id in VSCODE_TO_SHIKI ? VSCODE_TO_SHIKI[id] : id;
   return mapped ? (SHIKI.get(mapped) ?? null) : null;

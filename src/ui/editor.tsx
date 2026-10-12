@@ -7,11 +7,18 @@
  */
 import { Box, Text } from "ink";
 import { memo, type ReactNode } from "react";
-import type { Position } from "@/buffer";
+import {
+  cellOf,
+  eachBracket,
+  indentOf,
+  type Document,
+  type Position,
+} from "@/buffer";
 import type { Segment } from "@/highlight";
 import { Clickable, type LocalMouseEvent } from "@/mouse/regions";
 import { fit, placeText, widthOf } from "@/text";
 import type { Tab, Workbench } from "@/workbench";
+import { stickyLines } from "@/symbols";
 import { useTheme } from "./theme";
 
 /** A coloured stretch of a row. */
@@ -67,6 +74,109 @@ const contrastOn = (color: string) => {
     : "#ffffff";
 };
 
+/** Cells the minimap takes, and the narrowest editor that shows one. */
+const MINIMAP_CELLS = 10;
+const MINIMAP_MIN_EDITOR = 60;
+
+/** Braille dots by row (0-3) and column (0-1) within a cell. */
+const BRAILLE_DOTS = [
+  [0x01, 0x08],
+  [0x02, 0x10],
+  [0x04, 0x20],
+  [0x40, 0x80],
+];
+
+/** Characters of code one minimap dot stands for, sideways. */
+const CHARACTERS_PER_DOT = 2;
+
+/**
+ * Draws the minimap as VS Code's: four code lines per row in braille dots, a dot wherever code has a character; the
+ * mapped stretch follows the scroll so the viewport is always on it.
+ * @returns each row's text, whether a row lies in the viewport, and the line a row stands for
+ */
+const minimap = (
+  lines: string[],
+  scrollTop: number,
+  height: number,
+  cells: number,
+  tabSize: number,
+) => {
+  const span = height * 4;
+  const first =
+    lines.length <= span
+      ? 0
+      : Math.round(
+          ((lines.length - span) * scrollTop) /
+            Math.max(1, lines.length - height),
+        );
+  const rows: string[] = [];
+  for (let row = 0; row < height; row++) {
+    const codes = new Array(cells).fill(0);
+    for (let dotRow = 0; dotRow < 4; dotRow++) {
+      const text = lines[first + row * 4 + dotRow];
+      if (text === undefined) continue;
+      const expanded = text.replace(/\t/g, " ".repeat(tabSize));
+      for (let cell = 0; cell < cells; cell++)
+        for (let dotColumn = 0; dotColumn < 2; dotColumn++) {
+          const start = (cell * 2 + dotColumn) * CHARACTERS_PER_DOT;
+          if (expanded.slice(start, start + CHARACTERS_PER_DOT).trim())
+            codes[cell] |= BRAILLE_DOTS[dotRow][dotColumn];
+        }
+    }
+    rows.push(
+      codes
+        .map((code) => (code ? String.fromCharCode(0x2800 + code) : " "))
+        .join(""),
+    );
+  }
+  const lineAt = (row: number) => first + Math.max(0, row) * 4;
+  return {
+    rows,
+    lineAt,
+    viewport: (row: number) =>
+      lineAt(row) + 3 >= scrollTop && lineAt(row) < scrollTop + height,
+  };
+};
+
+/** @returns each bracket's colour by its nesting depth, for one line */
+const bracketColorsOf = (
+  document: Document,
+  line: number,
+  colors: string[],
+) => {
+  const result = new Map<number, string>();
+  let depth = document.depthAt(line);
+  eachBracket(document.lines[line], (column, opens) => {
+    if (!opens) depth = Math.max(0, depth - 1);
+    result.set(column, colors[depth % colors.length]);
+    if (opens) depth++;
+  });
+  return result;
+};
+
+/**
+ * @returns the cells of a line's indent guides: every indent stop inside its leading blanks; a blank line takes the
+ *   guides of the nearest non-blank line above, so guides run through empty lines
+ */
+const guideCells = (
+  text: string,
+  size: number,
+  line: number,
+  document: Document,
+) => {
+  let source = text;
+  for (let above = line; !source.trim() && above > 0; )
+    source = document.lines[--above];
+  const indent = cellOf(indentOf(source), indentOf(source).length, size);
+  const limit = text.trim()
+    ? cellOf(indentOf(text), indentOf(text).length, size)
+    : indent;
+  const cells: number[] = [];
+  for (let cell = 0; cell + size <= Math.min(indent, limit); cell += size)
+    cells.push(cell);
+  return cells;
+};
+
 const compare = (a: Position, b: Position) =>
   a.line - b.line || a.column - b.column;
 
@@ -88,6 +198,13 @@ const codeRow = (
     brackets: number[];
     cursor: number | null;
     lineBackground?: string;
+    /** Ranges ESLint reported on the line, drawn underlined. */
+    underlines: { start: number; end: number }[];
+    /** Colours of brackets by column, by nesting depth. */
+    bracketColors: Map<number, string>;
+    /** Cells where indent guides are drawn, inside the leading blanks. */
+    guides: number[];
+    guide: { glyph: string; color: string };
     /** Colour literals of the line, each drawn on its own colour. */
     swatches: { start: number; end: number; color: string }[];
     /** Text drawn after the line's end in the given colour, as the current line blame. */
@@ -154,8 +271,13 @@ const codeRow = (
             : brackets.includes(column)
               ? colors.bracket
               : (swatch?.color ?? options.lineBackground);
-      const visible =
-        placed.start < left || end > left + width
+      const guide =
+        placed.source === " " &&
+        options.guides.includes(placed.start) &&
+        !atCursor;
+      const visible = guide
+        ? options.guide.glyph
+        : placed.start < left || end > left + width
           ? " ".repeat(
               Math.min(end, left + width) - Math.max(placed.start, left),
             )
@@ -166,11 +288,19 @@ const codeRow = (
           ? colors.cursorText
           : swatch && background === swatch.color
             ? contrastOn(swatch.color)
-            : (segment?.color ?? options.defaultColor),
+            : guide
+              ? options.guide.color
+              : (options.bracketColors.get(column) ??
+                segment?.color ??
+                options.defaultColor),
         background,
         bold: segment?.bold,
         italic: segment?.italic,
-        underline: segment?.underline,
+        underline:
+          segment?.underline ||
+          options.underlines.some(
+            (range) => column >= range.start && column < range.end,
+          ),
       });
       used += Math.min(end, left + width) - Math.max(placed.start, left);
     }
@@ -260,11 +390,22 @@ export const CodeView = memo(
     focused: boolean;
     version: number;
   }) => {
-    const { colors: palette } = useTheme();
+    const { colors: palette, glyphs } = useTheme();
     const document = tab.document!;
     const { settings } = workbench.config;
     const gutter = workbench.gutterWidth(tab);
-    const codeWidth = Math.max(1, width - gutter);
+    const mapWidth =
+      settings.minimap && width >= MINIMAP_MIN_EDITOR ? MINIMAP_CELLS : 0;
+    const codeWidth = Math.max(1, width - gutter - mapWidth);
+    const map = mapWidth
+      ? minimap(
+          document.lines,
+          tab.scrollTop,
+          height,
+          mapWidth,
+          document.indentation.size,
+        )
+      : null;
     const selection = document.hasSelection ? document.range() : null;
     const find = workbench.find;
     const bracket =
@@ -272,16 +413,42 @@ export const CodeView = memo(
     tab.highlight?.request(tab.scrollTop + height + 50);
     if (focused) workbench.requestBlame();
     const blame = workbench.blame;
+    const sticky = settings.stickyScroll
+      ? stickyLines(
+          document.lines,
+          tab.scrollTop,
+          Math.max(0, Math.floor(height / 3)),
+        )
+      : [];
     const rows: ReactNode[] = [];
     for (let row = 0; row < height; row++) {
-      const line = tab.scrollTop + row;
+      const pinned = row < sticky.length;
+      const line = pinned ? sticky[row] : tab.scrollTop + row;
       if (line >= document.lines.length) {
-        rows.push(<Text key={row}>{" ".repeat(width)}</Text>);
+        rows.push(
+          <Text key={row}>
+            {" ".repeat(width - mapWidth)}
+            {map ? (
+              <Text
+                color={palette.textMuted}
+                backgroundColor={
+                  map.viewport(row) ? palette.lineHighlight : undefined
+                }
+              >
+                {map.rows[row]}
+              </Text>
+            ) : null}
+          </Text>,
+        );
         continue;
       }
-      const current = line === document.cursor.line;
-      const lineBackground =
-        current && settings.highlightLine && !selection
+      const current = line === document.cursor.line && !pinned;
+      const problems = (tab.diagnostics ?? []).filter(
+        (problem) => problem.line <= line && problem.endLine >= line,
+      );
+      const lineBackground = pinned
+        ? palette.header
+        : current && settings.highlightLine && !selection
           ? palette.lineHighlight
           : undefined;
       const number = !settings.lineNumbers
@@ -289,6 +456,7 @@ export const CodeView = memo(
         : settings.relativeLineNumbers && !current
           ? String(Math.abs(line - document.cursor.line))
           : String(line + 1);
+      const change = tab.changes?.get(line);
       const gutterText = settings.lineNumbers
         ? ` ${number.padStart(gutter - workbench.theme.spacing.gutterPadding - 1)}${" ".repeat(workbench.theme.spacing.gutterPadding)}`
         : " ";
@@ -323,14 +491,39 @@ export const CodeView = memo(
             : [],
           cursor: focused && current ? document.cursor.column : null,
           lineBackground,
+          bracketColors: settings.bracketPairColorization
+            ? bracketColorsOf(document, line, palette.brackets)
+            : new Map(),
+          guides: settings.guides
+            ? guideCells(
+                document.lines[line],
+                document.indentation.size,
+                line,
+                document,
+              )
+            : [],
+          guide: { glyph: glyphs.guide, color: palette.guide },
           swatches: settings.colorDecorators
             ? colorSwatches(document.lines[line])
             : [],
-          after:
-            current &&
-            blame?.text &&
-            blame.line === line &&
-            blame.path === tab.path
+          underlines: problems.map((problem) => ({
+            start: problem.line === line ? problem.start : 0,
+            end:
+              problem.endLine === line
+                ? Math.max(problem.end, problem.start + 1)
+                : document.lines[line].length,
+          })),
+          after: problems.length
+            ? {
+                text: `${problems[0].message}${problems.length > 1 ? ` (+${problems.length - 1})` : ""}`,
+                color: problems.some((problem) => problem.severity === "error")
+                  ? palette.danger
+                  : palette.warning,
+              }
+            : current &&
+                blame?.text &&
+                blame.line === line &&
+                blame.path === tab.path
               ? { text: blame.text, color: palette.gutter }
               : undefined,
           colors: palette,
@@ -342,9 +535,31 @@ export const CodeView = memo(
             color={current ? palette.gutterActive : palette.gutter}
             backgroundColor={lineBackground}
           >
-            {gutterText}
+            {gutterText.slice(0, -1)}
+          </Text>
+          <Text
+            color={
+              change === "added"
+                ? palette.added
+                : change === "deleted"
+                  ? palette.danger
+                  : palette.modified
+            }
+            backgroundColor={lineBackground}
+          >
+            {change ? (change === "deleted" ? "▔" : "▎") : gutterText.slice(-1)}
           </Text>
           <PieceText pieces={pieces} />
+          {map ? (
+            <Text
+              color={palette.textMuted}
+              backgroundColor={
+                map.viewport(row) ? palette.lineHighlight : undefined
+              }
+            >
+              {map.rows[row]}
+            </Text>
+          ) : null}
         </Box>,
       );
     }
@@ -356,6 +571,27 @@ export const CodeView = memo(
         height={height}
         flexDirection="column"
         onPress={(event) => {
+          if (event.localY < sticky.length) {
+            document.setCursor({ line: sticky[event.localY], column: 0 });
+            workbench.focus = "editor";
+            workbench.reveal(true);
+            workbench.changed();
+            return;
+          }
+          if (map && event.localX >= width - mapWidth) {
+            const scrollTo = (localY: number) => {
+              tab.scrollTop = Math.max(
+                0,
+                Math.min(
+                  document.lines.length - 1,
+                  map.lineAt(localY) - Math.floor(height / 2),
+                ),
+              );
+              workbench.changed();
+            };
+            scrollTo(event.localY);
+            return (move) => scrollTo(move.localY);
+          }
           const position = pointAt(event);
           if (!position) return;
           workbench.focus = "editor";

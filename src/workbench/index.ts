@@ -27,6 +27,7 @@ import {
   cellOf,
   columnAt,
   Document,
+  indentOf,
   type FindOptions,
   type Match,
   type Position,
@@ -50,6 +51,9 @@ import {
 } from "@/files";
 import { DocumentHighlight, SyntaxHighlighter } from "@/highlight";
 import { formatText } from "@/format";
+import { lintText, type Diagnostic } from "@/lint";
+import { expandSnippet, findSnippet, loadSnippets } from "@/snippets";
+import { fileSymbols } from "@/symbols";
 import {
   replaceInFile,
   searchFolder,
@@ -57,7 +61,14 @@ import {
   type FileResult,
   type SearchMatch,
 } from "@/search";
-import { blameLine, readGitStatus, timeAgo, type GitStatus } from "@/git";
+import {
+  blameLine,
+  diffLines,
+  readGitStatus,
+  timeAgo,
+  type GitStatus,
+  type LineChange,
+} from "@/git";
 import { Icons } from "@/icons";
 import { bindingOf, type KeyEvent } from "@/keys";
 import { commentOf, languageOf } from "@/languages";
@@ -77,7 +88,9 @@ export type Focus = "editor" | "explorer" | "settings" | "search";
 /** An editor tab. */
 export interface Tab {
   id: number;
-  kind: "file" | "settings";
+  kind: "file" | "settings" | "preview";
+  /** The Markdown file a preview shows. */
+  source?: Tab;
   /** Absolute path; `null` for an untitled file and the settings page. */
   path: string | null;
   title: string;
@@ -90,6 +103,13 @@ export interface Tab {
   notice: string | null;
   /** A format before saving is running. */
   formatting?: boolean;
+  /** How lines differ from the last commit, for the gutter. */
+  changes?: Map<number, LineChange>;
+  /** ESLint's problems for the text as it is now. */
+  diagnostics?: Diagnostic[];
+  /** Pending lint and auto save. */
+  lintTimer?: ReturnType<typeof setTimeout>;
+  saveTimer?: ReturnType<typeof setTimeout>;
   /** Modification time when last read or written, to tell changes made elsewhere. */
   modified: number;
 }
@@ -484,6 +504,13 @@ export class Workbench {
         limits.highlightMaxLines,
         () => this.changed(),
       );
+    if (document) {
+      document.onChange(() => {
+        this.lint(tab);
+        this.scheduleAutoSave(tab);
+      });
+      this.lint(tab);
+    }
     return tab;
   }
 
@@ -533,8 +560,48 @@ export class Workbench {
     this.changed();
   }
 
+  /** Opens Markdown Preview of the active Markdown file beside it, or shows the open one. */
+  openPreview() {
+    const source = this.tab?.kind === "preview" ? this.tab.source : this.tab;
+    if (
+      !source?.document ||
+      (source.language !== "markdown" && source.language !== "mdx")
+    )
+      return this.say("Markdown Preview needs a Markdown file in the editor");
+    const existing = this.tabs.findIndex(
+      (tab) => tab.kind === "preview" && tab.source === source,
+    );
+    if (existing >= 0) return this.activate(existing);
+    const tab: Tab = {
+      id: nextTabId++,
+      kind: "preview",
+      source,
+      path: null,
+      title: `Preview ${source.title}`,
+      document: null,
+      highlight: null,
+      language: null,
+      scrollTop: 0,
+      scrollLeft: 0,
+      notice: null,
+      modified: 0,
+    };
+    this.tabs.splice(this.active + 1, 0, tab);
+    this.active++;
+    this.focus = "editor";
+    this.changed();
+  }
+
   /** @param index the tab to show */
   activate(index: number) {
+    const previous = this.tab;
+    if (
+      this.config.settings.autoSave === "onFocusChange" &&
+      previous?.document?.dirty &&
+      previous.path &&
+      index !== this.active
+    )
+      this.save(this.active);
     if (!this.tabs[index]) return;
     this.active = index;
     const tab = this.tabs[index];
@@ -1268,6 +1335,112 @@ export class Workbench {
     }, BLAME_DELAY_MS);
   }
 
+  /**
+   * Lints a tab's text with the project's ESLint a moment after the last change; the result is dropped when the text
+   * changed meanwhile.
+   */
+  lint(tab: Tab) {
+    const document = tab.document;
+    if (!tab.path || !document) return;
+    if (tab.lintTimer) clearTimeout(tab.lintTimer);
+    tab.lintTimer = setTimeout(async () => {
+      const version = document.version;
+      const [diagnostics, changes] = await Promise.all([
+        this.config.settings.eslint ? lintText(tab.path!, document.text()) : [],
+        this.git
+          ? diffLines(tab.path!, document.text())
+          : new Map<number, LineChange>(),
+      ]);
+      if (document.version !== version) return;
+      tab.diagnostics = diagnostics;
+      tab.changes = changes;
+      this.changed();
+    }, this.config.limits.lintDelayMs);
+  }
+
+  /** Moves the cursor to the next or previous ESLint problem, wrapping around, and shows its message. */
+  stepProblem(step: 1 | -1) {
+    const tab = this.tab;
+    const document = tab?.document;
+    const problems = [...(tab?.diagnostics ?? [])].sort(
+      (a, b) => a.line - b.line || a.start - b.start,
+    );
+    if (!document || !problems.length)
+      return this.say("No problems have been detected in the file.");
+    const { line, column } = document.cursor;
+    const after = (problem: Diagnostic) =>
+      problem.line > line || (problem.line === line && problem.start > column);
+    const next =
+      step > 0
+        ? (problems.find(after) ?? problems[0])
+        : ([...problems]
+            .reverse()
+            .find(
+              (problem) =>
+                !after(problem) &&
+                (problem.line < line || problem.start < column),
+            ) ?? problems.at(-1)!);
+    document.setCursor({ line: next.line, column: next.start });
+    this.say(
+      `${next.message}${next.rule ? ` eslint(${next.rule})` : ""}`,
+      next.severity === "error",
+    );
+    this.reveal(true);
+    this.changed();
+  }
+
+  /** Saves a changed file after a pause, when `autoSave` is `afterDelay`, as VS Code's `files.autoSave`. */
+  private scheduleAutoSave(tab: Tab) {
+    if (this.config.settings.autoSave !== "afterDelay" || !tab.path) return;
+    if (tab.saveTimer) clearTimeout(tab.saveTimer);
+    tab.saveTimer = setTimeout(() => {
+      const index = this.tabs.indexOf(tab);
+      if (index >= 0 && tab.document?.dirty) this.save(index);
+    }, this.config.limits.autoSaveDelayMs);
+  }
+
+  /**
+   * Expands the snippet whose prefix is the word before the cursor, as Tab completion does in VS Code.
+   * @returns whether a snippet was inserted
+   */
+  private expandSnippet() {
+    const tab = this.tab;
+    const document = tab?.document;
+    if (
+      !tab ||
+      !document ||
+      document.hasSelection ||
+      !this.config.settings.snippets
+    )
+      return false;
+    const { line, column } = document.cursor;
+    const word = /[\w$.!-]+$/.exec(document.lines[line].slice(0, column))?.[0];
+    if (!word) return false;
+    loadSnippets();
+    const snippet = findSnippet(tab.language, word);
+    if (!snippet) return false;
+    const unit = document.indentation.useTabs
+      ? "\t"
+      : " ".repeat(document.indentation.size);
+    const expanded = expandSnippet(snippet.body, {
+      fileName: tab.title,
+      indent: indentOf(document.lines[line]),
+      unit,
+    });
+    const start = { line, column: column - word.length };
+    document.replace(start, document.cursor, expanded.text, "edit");
+    const before = expanded.text.slice(0, expanded.cursor).split("\n");
+    const at = {
+      line: line + before.length - 1,
+      column: (before.length === 1 ? start.column : 0) + before.at(-1)!.length,
+    };
+    document.select(at, {
+      line: at.line,
+      column: at.column + expanded.selected,
+    });
+    return true;
+  }
+
   /** After the text or cursor changed: keeps the cursor in view and the find results current. */
   afterEdit() {
     this.updateMatches(false);
@@ -1421,7 +1594,7 @@ export class Workbench {
         break;
       case "tab":
         if (key.shift) document.outdent();
-        else document.indent();
+        else if (!this.expandSnippet()) document.indent();
         break;
       case "escape":
         if (this.find) {
@@ -1643,7 +1816,7 @@ export class Workbench {
       items: [],
       cursor: 0,
       placeholder:
-        "Search files by name (append : to go to line or > to run a command)",
+        "Search files by name (append : to go to line, @ to go to a symbol, > to run a command)",
     };
     this.filterPalette();
     this.changed();
@@ -1653,6 +1826,37 @@ export class Workbench {
     const palette = this.palette!;
     const value = palette.field.value;
     palette.cursor = 0;
+    if (value.startsWith("@")) {
+      const tab = this.tab;
+      const document = tab?.document;
+      const query = value.slice(1).trim();
+      palette.items = document
+        ? fileSymbols(document.lines, tab!.language)
+            .flatMap((symbol) => {
+              const match = fuzzyMatch(symbol.name, query);
+              return match
+                ? [
+                    {
+                      label: symbol.name,
+                      detail: `${symbol.kind}  ${symbol.line + 1}`,
+                      positions: match.positions,
+                      score: match.score,
+                      run: () => {
+                        document.setCursor({
+                          line: symbol.line,
+                          column: indentOf(document.lines[symbol.line]).length,
+                        });
+                        this.focus = "editor";
+                        this.reveal(true);
+                      },
+                    },
+                  ]
+                : [];
+            })
+            .sort((a, b) => (query ? b.score - a.score : 0))
+        : [];
+      return;
+    }
     if (value.startsWith(">")) {
       const query = value.slice(1).trim();
       palette.items = this.commands()
@@ -2376,6 +2580,26 @@ export class Workbench {
         run: () => this.withDocument((document) => document.moveLines(1)),
       },
       {
+        action: "markdownPreview",
+        label: "Markdown: Open Preview to the Side",
+        run: () => this.openPreview(),
+      },
+      {
+        action: "goToSymbol",
+        label: "Go to Symbol in Editor...",
+        run: () => this.openPalette("@"),
+      },
+      {
+        action: "nextProblem",
+        label: "Go to Next Problem in Files (Error, Warning, Info)",
+        run: () => this.stepProblem(1),
+      },
+      {
+        action: "previousProblem",
+        label: "Go to Previous Problem in Files (Error, Warning, Info)",
+        run: () => this.stepProblem(-1),
+      },
+      {
         action: "format",
         label: "Format Document",
         run: () => void this.formatDocument(),
@@ -2461,7 +2685,15 @@ export class Workbench {
       else if (this.focus === "explorer") this.explorerKey(key);
       else if (this.focus === "search") this.searchKey(key);
       else if (this.focus === "settings") this.settingsKey(key);
-      else if (this.tab?.document) this.editorKey(key);
+      else if (this.tab?.kind === "preview") {
+        const step = {
+          up: -1,
+          down: 1,
+          pageup: -this.view.rows,
+          pagedown: this.view.rows,
+        }[key.name];
+        if (step) this.tab.scrollTop = Math.max(0, this.tab.scrollTop + step);
+      } else if (this.tab?.document) this.editorKey(key);
       else if (key.name === "escape" || key.name === "tab")
         this.focus = "explorer";
     }
