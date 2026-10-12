@@ -3119,10 +3119,14 @@ export class Workbench {
         : null);
     const previous = this.find;
     this.find = {
-      query: seed ? field(seed) : (previous?.query ?? field()),
+      query: seed
+        ? field(seed, true)
+        : previous?.query
+          ? { ...previous.query, selected: true }
+          : field(),
       replacement: previous?.replacement ?? field(),
       replacing,
-      field: replacing && seed ? "replacement" : "query",
+      field: replacing && selected ? "replacement" : "query",
       options: previous?.options ?? {
         caseSensitive: false,
         regex: false,
@@ -4154,7 +4158,7 @@ export class Workbench {
         action: "explorer",
         label: "View: Toggle Primary Side Bar Visibility",
         run: () =>
-          this.side === "search"
+          this.side !== "explorer"
             ? this.showExplorer()
             : this.setSetting(
                 "settings.explorer",

@@ -183,7 +183,7 @@ export const App = ({
       label: "Explorer",
       key: keys.explorer,
       run: () =>
-        workbench.side === "search"
+        workbench.side !== "explorer"
           ? workbench.showExplorer()
           : workbench.setSetting(
               "settings.explorer",
@@ -801,7 +801,10 @@ const TabStrip = ({
                     {active || dirty ? "▎" : " "}
                   </Text>
                   <Text color={icon.color ?? palette.icon}>{icon.glyph}</Text>
-                  <Text color={dirty ? palette.modified : color}>
+                  <Text
+                    color={dirty ? palette.modified : color}
+                    italic={tab.preview}
+                  >
                     {" "}
                     {tab.title}{" "}
                   </Text>
