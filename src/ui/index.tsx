@@ -653,6 +653,13 @@ const TabStrip = ({
                   workbench.focusGroup(group);
                   workbench.activate(index);
                 }}
+                onRightClick={(event) =>
+                  workbench.tabMenu(group, index, event.x, event.y)
+                }
+                onMiddleClick={() => {
+                  workbench.focusGroup(group);
+                  workbench.close(index);
+                }}
                 onPress={() => (move) => {
                   if (
                     move.kind !== "up" ||
@@ -748,9 +755,21 @@ const Breadcrumbs = ({
     );
   }
   return (
-    <Text color={palette.textMuted}>
-      {fit(parts.length ? ` ${parts.join(" › ")}` : "", width)}
-    </Text>
+    <Clickable
+      height={1}
+      width={width}
+      onClick={() => {
+        const group = workbench.groups.findIndex(
+          (entry) => tab && entry.tabs.includes(tab),
+        );
+        if (group >= 0) workbench.focusGroup(group);
+        if (tab?.document) workbench.openPalette("@");
+      }}
+    >
+      <Text color={palette.textMuted}>
+        {fit(parts.length ? ` ${parts.join(" › ")}` : "", width)}
+      </Text>
+    </Clickable>
   );
 };
 

@@ -29,6 +29,8 @@ export interface MouseEvent {
   shift: boolean;
   /** Option (Alt) was held; terminals report it as Meta. */
   alt: boolean;
+  /** Control was held. */
+  ctrl: boolean;
 }
 
 /** How presses count as a double click. */
@@ -80,6 +82,7 @@ const toEvent = (
   const wheel = (code & 64) !== 0;
   const shift = (code & 4) !== 0;
   const alt = (code & 8) !== 0;
+  const ctrl = (code & 16) !== 0;
   const wheelKinds = shift
     ? (["wheelLeft", "wheelRight", "wheelLeft", "wheelRight"] as const)
     : (["wheelUp", "wheelDown", "wheelLeft", "wheelRight"] as const);
@@ -87,6 +90,7 @@ const toEvent = (
     x: column - 1,
     y: row - 1,
     alt,
+    ctrl,
     kind: wheel
       ? wheelKinds[buttonCode]
       : (code & 32) !== 0

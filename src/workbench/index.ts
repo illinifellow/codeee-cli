@@ -5,15 +5,23 @@
  * settings page and the toolbar message. The screen subscribes and redraws on
  * every change; keys and mouse gestures arrive here as method calls.
  */
+import { spawn } from "node:child_process";
 import {
   basename,
   dirname,
+  extname,
   isAbsolute,
   join,
   relative,
   resolve,
 } from "node:path";
-import { existsSync, renameSync, statSync, type FSWatcher } from "node:fs";
+import {
+  cpSync,
+  existsSync,
+  renameSync,
+  statSync,
+  type FSWatcher,
+} from "node:fs";
 import {
   loadConfig,
   loadDefaults,
@@ -252,6 +260,19 @@ interface Command {
 }
 
 let nextTabId = 1;
+
+/** Shows a file in the Finder, or the platform's file manager. */
+const revealInFinder = (path: string) => {
+  const [command, args] =
+    process.platform === "darwin"
+      ? ["open", ["-R", path]]
+      : process.platform === "win32"
+        ? ["explorer", [`/select,${path}`]]
+        : ["xdg-open", [dirname(path)]];
+  spawn(command, args, { detached: true, stdio: "ignore" })
+    .on("error", () => undefined)
+    .unref();
+};
 
 /** How often git's status is read again, for commits and staging made elsewhere (the watcher skips `.git`). */
 const GIT_POLL_MS = 3000;
@@ -1203,6 +1224,35 @@ export class Workbench {
     });
   }
 
+  /** A file or folder copied in the explorer, to paste into another folder. */
+  copiedEntry: string | null = null;
+
+  /**
+   * Pastes the copied file or folder into a folder, naming the copy `name copy.ext` when the name is taken, as VS Code.
+   * @param folder where to
+   */
+  pasteEntry(folder: string) {
+    const source = this.copiedEntry;
+    if (!source || !existsSync(source)) return;
+    const extension = extname(source);
+    const stem = basename(source, extension);
+    let target = join(folder, basename(source));
+    for (let count = 1; existsSync(target); count++)
+      target = join(
+        folder,
+        `${stem} copy${count > 1 ? ` ${count}` : ""}${extension}`,
+      );
+    try {
+      cpSync(source, target, { recursive: true });
+    } catch (error) {
+      return this.say(`Failed to paste: ${(error as Error).message}`, true);
+    }
+    this.tree.expanded.add(folder);
+    this.tree.refresh();
+    this.files = null;
+    this.revealInExplorer(target);
+  }
+
   /** The explorer row a drag is over. */
   dropTarget: string | null = null;
 
@@ -1282,6 +1332,86 @@ export class Workbench {
         { label: "Cancel", run: () => undefined },
       ],
     });
+  }
+
+  /** Puts a cursor on every occurrence of the selection or the word at the cursor, as Change All Occurrences. */
+  selectAllOccurrences() {
+    this.withDocument((document) => {
+      if (!document.addNextOccurrence()) return;
+      while (document.extras.length < 10000 && document.addNextOccurrence());
+    });
+  }
+
+  /**
+   * Opens a tab's context menu at a screen cell, as VS Code's tab menu.
+   * @param group the tab's group
+   * @param index the tab
+   */
+  tabMenu(group: number, index: number, x: number, y: number) {
+    this.focusGroup(group);
+    const tab = this.tabs[index];
+    if (!tab) return;
+    const closeWhere = (keep: (other: Tab, position: number) => boolean) => {
+      for (let position = this.tabs.length - 1; position >= 0; position--)
+        if (!keep(this.tabs[position], position)) this.close(position);
+    };
+    this.menu = {
+      x,
+      y,
+      cursor: 0,
+      items: [
+        {
+          label: "Close",
+          key: this.config.keys.close,
+          run: () => this.close(index),
+        },
+        {
+          label: "Close Others",
+          run: () => closeWhere((other) => other === tab),
+        },
+        {
+          label: "Close to the Right",
+          run: () => closeWhere((_other, position) => position <= index),
+        },
+        {
+          label: "Close Saved",
+          run: () => closeWhere((other) => Boolean(other.document?.dirty)),
+        },
+        { label: "Close All", run: () => closeWhere(() => false) },
+        ...(tab.path
+          ? [
+              {
+                label: "Copy Path",
+                separator: true,
+                run: () => void this.copy(tab.path!),
+              },
+              {
+                label: "Copy Relative Path",
+                run: () => void this.copy(relativeTo(this.root, tab.path!)),
+              },
+              {
+                label: "Reveal in Finder",
+                run: () => revealInFinder(tab.path!),
+              },
+              {
+                label: "Reveal in Explorer View",
+                run: () =>
+                  this.commands()
+                    .find((command) => command.action === "revealActive")
+                    ?.run(),
+              },
+            ]
+          : []),
+        {
+          label: "Keep Open",
+          separator: true,
+          run: () => void (tab.preview = false),
+        },
+        { label: "Split Right", run: () => this.splitEditor() },
+      ],
+    };
+    this.active = index;
+    this.changed();
   }
 
   /** Opens the explorer's context menu for a row at a screen cell. */
@@ -1502,6 +1632,31 @@ export class Workbench {
       y,
       cursor: 0,
       items: [
+        {
+          label: "Go to Definition",
+          key: "f12",
+          run: () => void this.goToDefinition(),
+        },
+        {
+          label: "Go to Symbol...",
+          key: key("goToSymbol"),
+          run: () => this.openPalette("@"),
+        },
+        {
+          label: "Rename Symbol",
+          key: "f2",
+          separator: true,
+          run: () => this.renameSymbol(),
+        },
+        {
+          label: "Change All Occurrences",
+          run: () => this.selectAllOccurrences(),
+        },
+        {
+          label: "Format Document",
+          key: key("format"),
+          run: () => void this.formatDocument(),
+        },
         {
           label: "Go to Bracket",
           run: () => this.withDocument((document) => document.jumpToBracket()),
@@ -3358,6 +3513,11 @@ export class Workbench {
         action: "indentation",
         label: "Change Indentation",
         run: () => this.pickIndentation(),
+      },
+      {
+        action: "selectAllOccurrences",
+        label: "Change All Occurrences",
+        run: () => this.selectAllOccurrences(),
       },
       {
         action: "addNextOccurrence",
