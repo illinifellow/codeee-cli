@@ -100,7 +100,8 @@
     "nextProblem": "f8",
     "previousProblem": "shift+f8",
     "markdownPreview": "alt+v",
-    "reopenClosed": "alt+t"
+    "reopenClosed": "alt+t",
+    "toggleFold": "alt+k"
   },
   "themes": {
     "golden-brown": {

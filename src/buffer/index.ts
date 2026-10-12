@@ -401,13 +401,21 @@ export class Document {
    * @param select extend the selection
    */
   vertical(lines: number, select: boolean) {
-    const { tabSize } = { tabSize: this.indentation.size };
+    this.verticalTo(this.cursor.line + lines, select);
+  }
+
+  /**
+   * Cursor to a line, keeping the cell vertical moves aim for, as a move over folded lines needs.
+   * @param line the target line; past either end the cursor goes to the file's start or end
+   * @param select extend the selection
+   */
+  verticalTo(line: number, select: boolean) {
+    const tabSize = this.indentation.size;
     this.goal ??= cellOf(
       this.lines[this.cursor.line],
       this.cursor.column,
       tabSize,
     );
-    const line = this.cursor.line + lines;
     if (line < 0) return this.setCursor({ line: 0, column: 0 }, select);
     if (line >= this.lines.length)
       return this.setCursor(

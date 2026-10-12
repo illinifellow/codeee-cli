@@ -51,6 +51,7 @@ import {
 } from "@/files";
 import { DocumentHighlight, SyntaxHighlighter } from "@/highlight";
 import { expandEmmet } from "@/emmet";
+import { foldEnd, foldsHiding, visibleLines } from "@/folding";
 import { formatText } from "@/format";
 import { lintText, type Diagnostic } from "@/lint";
 import { expandSnippet, findSnippet, loadSnippets } from "@/snippets";
@@ -104,6 +105,8 @@ export interface Tab {
   notice: string | null;
   /** A format before saving is running. */
   formatting?: boolean;
+  /** Lines whose blocks are folded. */
+  folds?: Set<number>;
   /** How lines differ from the last commit, for the gutter. */
   changes?: Map<number, LineChange>;
   /** ESLint's problems for the text as it is now. */
@@ -513,7 +516,17 @@ export class Workbench {
         () => this.changed(),
       );
     if (document) {
-      document.onChange(() => {
+      document.onChange((start, removed, inserted) => {
+        if (tab.folds?.size)
+          tab.folds = new Set(
+            [...tab.folds].flatMap((line) =>
+              line < start
+                ? [line]
+                : line >= start + removed
+                  ? [line + inserted - removed]
+                  : [],
+            ),
+          );
         this.lint(tab);
         this.scheduleAutoSave(tab);
       });
@@ -1465,6 +1478,64 @@ export class Workbench {
     );
   }
 
+  private visibleCache = new WeakMap<Tab, { key: string; lines: number[] }>();
+
+  /** @returns the lines of a tab left on screen by its folds, computed once per text version and fold set */
+  visibleOf(tab: Tab): number[] {
+    const document = tab.document;
+    if (!document) return [];
+    const key = `${document.version}:${[...(tab.folds ?? [])].join(",")}`;
+    const cached = this.visibleCache.get(tab);
+    if (cached?.key === key) return cached.lines;
+    const lines = tab.folds?.size
+      ? visibleLines(document.lines, tab.folds)
+      : document.lines.map((_line, index) => index);
+    this.visibleCache.set(tab, { key, lines });
+    return lines;
+  }
+
+  /**
+   * Folds or unfolds the block a line opens; on a line inside a block, the nearest block around it.
+   * @param line the line; the cursor's when absent
+   */
+  toggleFold(line = this.tab?.document?.cursor.line) {
+    const tab = this.tab;
+    const document = tab?.document;
+    if (!tab || !document || line === undefined) return;
+    tab.folds ??= new Set();
+    if (tab.folds.has(line)) tab.folds.delete(line);
+    else {
+      let start = line;
+      while (start >= 0 && (foldEnd(document.lines, start) ?? -1) < line)
+        start--;
+      if (start < 0) return this.say("Nothing to fold here");
+      tab.folds.add(start);
+      if (document.cursor.line > start)
+        document.setCursor({ line: start, column: document.cursor.column });
+    }
+    this.afterEdit();
+  }
+
+  /** Folds every block at the outermost foldable levels, or unfolds all. */
+  foldAll(fold: boolean) {
+    const tab = this.tab;
+    const document = tab?.document;
+    if (!tab || !document) return;
+    tab.folds = new Set();
+    if (fold)
+      for (let line = 0; line < document.lines.length; line++) {
+        const end = foldEnd(document.lines, line);
+        if (end === null || line === 0) continue;
+        tab.folds.add(line);
+        line = end;
+      }
+    document.setCursor({
+      line: Math.min(document.cursor.line, document.lines.length - 1),
+      column: 0,
+    });
+    this.afterEdit();
+  }
+
   /** Renames the word at the cursor everywhere in the file, as F2 does for a symbol, matching whole words and case. */
   renameSymbol() {
     const document = this.tab?.document;
@@ -1704,6 +1775,14 @@ export class Workbench {
 
   /** After the text or cursor changed: keeps the cursor in view and the find results current. */
   afterEdit() {
+    const tab = this.tab;
+    if (tab?.document && tab.folds?.size)
+      for (const start of foldsHiding(
+        tab.document.lines,
+        tab.folds,
+        tab.document.cursor.line,
+      ))
+        tab.folds.delete(start);
     this.updateMatches(false);
     this.reveal();
     this.changed();
@@ -1784,10 +1863,10 @@ export class Workbench {
     const tab = this.tab;
     const document = tab?.document;
     if (!tab || !document) return null;
-    const line = Math.max(
-      0,
-      Math.min(document.lines.length - 1, tab.scrollTop + row),
-    );
+    const visible = this.visibleOf(tab);
+    const first = visible.findIndex((line) => line >= tab.scrollTop);
+    const line =
+      visible[Math.max(0, Math.min(visible.length - 1, first + row))];
     const column = columnAt(
       document.lines[line],
       Math.max(0, cell - this.gutterWidth(tab) + tab.scrollLeft),
@@ -1818,13 +1897,18 @@ export class Workbench {
         document.right(select, word);
         break;
       case "up":
-        if (key.ctrl && !key.shift) return this.scroll(-1);
-        document.vertical(-1, select);
+      case "down": {
+        const step = key.name === "up" ? -1 : 1;
+        if (key.ctrl && !key.shift) return this.scroll(step);
+        const visible = this.visibleOf(this.tab!);
+        const index = visible.indexOf(document.cursor.line);
+        const target = visible[index + step];
+        document.verticalTo(
+          target ?? (step < 0 ? -1 : document.lines.length),
+          select,
+        );
         break;
-      case "down":
-        if (key.ctrl && !key.shift) return this.scroll(1);
-        document.vertical(1, select);
-        break;
+      }
       case "pageup":
         document.vertical(-page, select);
         this.tab!.scrollTop = Math.max(0, this.tab!.scrollTop - page);
@@ -2864,6 +2948,17 @@ export class Workbench {
         action: "reopenClosed",
         label: "View: Reopen Closed Editor",
         run: () => this.reopenClosed(),
+      },
+      {
+        action: "toggleFold",
+        label: "Toggle Fold",
+        run: () => this.toggleFold(),
+      },
+      { action: "foldAll", label: "Fold All", run: () => this.foldAll(true) },
+      {
+        action: "unfoldAll",
+        label: "Unfold All",
+        run: () => this.foldAll(false),
       },
       {
         action: "goToDefinition",
