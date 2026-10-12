@@ -192,6 +192,9 @@ export interface Config {
 export interface Session {
   open: string[];
   active: string | null;
+  /** The editor groups, each with its files and shown file, and the layout; absent for one group. */
+  groups?: { open: string[]; active: string | null }[];
+  layout?: "horizontal" | "vertical";
 }
 
 /** What codeee remembers between runs. */

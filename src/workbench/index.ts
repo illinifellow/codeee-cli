@@ -275,6 +275,24 @@ interface Command {
 
 let nextTabId = 1;
 
+/** Words of each document by version, so suggestions do not read the whole text on every key. */
+const WORDS = new WeakMap<
+  Document,
+  { version: number; words: Map<string, number> }
+>();
+
+/** @returns the words of a document and how often each occurs */
+const wordsOf = (document: Document) => {
+  const cached = WORDS.get(document);
+  if (cached?.version === document.version) return cached.words;
+  const words = new Map<string, number>();
+  for (const text of document.lines)
+    for (const match of text.matchAll(/[\p{L}_$][\p{L}\p{N}_$]{2,}/gu))
+      words.set(match[0], (words.get(match[0]) ?? 0) + 1);
+  WORDS.set(document, { version: document.version, words });
+  return words;
+};
+
 /** Shows a file in the Finder, or the platform's file manager. */
 const revealInFinder = (path: string) => {
   const [command, args] =
@@ -535,12 +553,27 @@ export class Workbench {
       (paths) => this.changedOnDisk(paths),
     );
     const session = this.config.state.sessions[root];
-    for (const path of session?.open ?? [])
-      if (modifiedTime(path)) this.open(path, { quiet: true });
-    const active = session?.active
-      ? this.tabs.findIndex((tab) => tab.path === session.active)
-      : -1;
-    if (active >= 0) this.active = active;
+    const groups = session?.groups?.length
+      ? session.groups
+      : [{ open: session?.open ?? [], active: session?.active ?? null }];
+    groups.forEach((saved, index) => {
+      if (index) {
+        this.groups.push({ tabs: [], active: -1 });
+        this.group = index;
+      }
+      for (const path of saved.open)
+        if (modifiedTime(path)) this.open(path, { quiet: true });
+      const active = saved.active
+        ? this.tabs.findIndex((tab) => tab.path === saved.active)
+        : -1;
+      if (active >= 0) this.active = active;
+    });
+    this.groups = this.groups.filter(
+      (group) => group.tabs.length || this.groups.length === 1,
+    );
+    if (!this.groups.length) this.groups = [{ tabs: [], active: -1 }];
+    this.group = 0;
+    this.layout = session?.layout ?? "horizontal";
     for (const backup of readBackups()) {
       if (!backup.path.startsWith(`${root}/`) || !modifiedTime(backup.path))
         continue;
@@ -633,6 +666,22 @@ export class Workbench {
     const existing = this.tabs.findIndex((tab) => tab.path === path);
     if (existing >= 0) {
       this.active = existing;
+    } else if (
+      this.allTabs().some((tab) => tab.path === path && tab.document)
+    ) {
+      const twin = this.allTabs().find(
+        (tab) => tab.path === path && tab.document,
+      )!;
+      const copy: Tab = {
+        ...twin,
+        id: nextTabId++,
+        preview: false,
+        folds: new Set(twin.folds ?? []),
+        scrollTop: 0,
+        scrollLeft: 0,
+      };
+      this.tabs.splice(this.tabs.length ? this.active + 1 : 0, 0, copy);
+      this.active = this.tabs.indexOf(copy);
     } else {
       const contents = readText(path, this.config.limits.maxFileMegabytes);
       const notice =
@@ -921,6 +970,14 @@ export class Workbench {
         ),
       ],
       active: this.tab?.path ?? null,
+      groups:
+        this.groups.length > 1
+          ? this.groups.map((group) => ({
+              open: group.tabs.flatMap((tab) => (tab.path ? [tab.path] : [])),
+              active: group.tabs[group.active]?.path ?? null,
+            }))
+          : undefined,
+      layout: this.groups.length > 1 ? this.layout : undefined,
     };
     try {
       saveState(state);
@@ -1870,6 +1927,11 @@ export class Workbench {
           : new Map<number, LineChange>(),
       ]);
       if (document.version !== version) return;
+      for (const other of this.allTabs())
+        if (other.document === document) {
+          other.diagnostics = diagnostics;
+          other.changes = changes;
+        }
       tab.diagnostics = diagnostics;
       tab.changes = changes;
       this.changed();
@@ -2461,9 +2523,8 @@ export class Workbench {
         .map((other) => other.document)
         .filter(Boolean),
     ))
-      for (const text of open!.lines)
-        for (const match of text.matchAll(/[\p{L}_$][\p{L}\p{N}_$]{2,}/gu))
-          words.set(match[0], (words.get(match[0]) ?? 0) + 1);
+      for (const [word, count] of wordsOf(open!))
+        words.set(word, (words.get(word) ?? 0) + count);
     if (document.lines[line].slice(column - prefix.length).startsWith(prefix)) {
       const own = /^[\p{L}\p{N}_$]+/u.exec(
         document.lines[line].slice(column - prefix.length),
