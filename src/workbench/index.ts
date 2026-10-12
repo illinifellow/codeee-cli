@@ -3417,6 +3417,18 @@ export class Workbench {
       palette.items = this.paletteSource(value.trim());
       return;
     }
+    if (value === "?") {
+      palette.items = [
+        ["", "Go to File"],
+        [":", "Go to Line/Column"],
+        ["@", "Go to Symbol in Editor"],
+        [">", "Show and Run Commands"],
+      ].map(([prefix, label]) => ({
+        label: `${prefix || "…"}  ${label}`,
+        run: () => this.openPalette(prefix),
+      }));
+      return;
+    }
     if (value.startsWith("@")) {
       const tab = this.tab;
       const document = tab?.document;
