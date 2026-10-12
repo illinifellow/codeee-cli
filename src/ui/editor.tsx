@@ -438,7 +438,7 @@ const codeRow = (
           : swatch && background === swatch.color
             ? contrastOn(swatch.color)
             : guide || whitespace
-              ? whitespace || placed.start !== options.guide.activeCell
+              ? !guide || placed.start !== options.guide.activeCell
                 ? options.guide.color
                 : options.guide.active
               : (options.bracketColors.get(column) ??
