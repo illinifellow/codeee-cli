@@ -252,3 +252,22 @@ describe("preserve case", () => {
     expect(preserveCase("fOo", "bar")).toBe("bar");
   });
 });
+
+describe("several cursors and the clipboard", () => {
+  it("copies every selection line by line and pastes one line to each cursor", () => {
+    const document = open("a1 b1\na2 b2");
+    document.select({ line: 0, column: 0 }, { line: 0, column: 2 });
+    document.extras.push({
+      anchor: { line: 1, column: 0 },
+      cursor: { line: 1, column: 2 },
+    });
+    expect(document.copyText().text).toBe("a1\na2");
+    document.setCursor({ line: 0, column: 5 });
+    document.extras.push({
+      anchor: { line: 1, column: 5 },
+      cursor: { line: 1, column: 5 },
+    });
+    document.editAll("type", [" x", " y"]);
+    expect(document.lines).toEqual(["a1 b1 x", "a2 b2 y"]);
+  });
+});

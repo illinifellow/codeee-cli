@@ -310,6 +310,17 @@ export class Document {
       : [this.cursor, anchor];
   }
 
+  /** @returns the text between two positions, lines joined with `\n` */
+  textBetween(start: Position, end: Position) {
+    if (start.line === end.line)
+      return this.lines[start.line].slice(start.column, end.column);
+    return [
+      this.lines[start.line].slice(start.column),
+      ...this.lines.slice(start.line + 1, end.line),
+      this.lines[end.line].slice(0, end.column),
+    ].join("\n");
+  }
+
   /** @returns the selected text, lines joined with `\n` */
   selectedText() {
     const [start, end] = this.range();
@@ -1033,6 +1044,17 @@ export class Document {
    * @returns the text and whether it is a whole line
    */
   copyText(): { text: string; wholeLine: boolean } {
+    if (this.extras.length) {
+      const ranges = this.allRanges().sort((a, b) =>
+        before(a[0], b[0]) ? -1 : 1,
+      );
+      const parts = ranges.map(([start, end]) =>
+        same(start, end)
+          ? this.lines[start.line]
+          : this.textBetween(start, end),
+      );
+      return { text: parts.join("\n"), wholeLine: false };
+    }
     if (this.hasSelection)
       return { text: this.selectedText(), wholeLine: false };
     return { text: `${this.lines[this.cursor.line]}\n`, wholeLine: true };
@@ -1440,7 +1462,10 @@ export class Document {
    * @param action what to do at each cursor
    * @param text what to type, for `type`
    */
-  editAll(action: "type" | "backspace" | "delete", text = "") {
+  editAll(
+    action: "type" | "backspace" | "delete",
+    text: string | string[] = "",
+  ) {
     const ranges = this.allRanges().filter(
       ([start, end]) => start.line === end.line,
     );
@@ -1457,6 +1482,7 @@ export class Document {
           b.range[0].column - a.range[0].column,
       );
     const carets: Position[] = [];
+    const ascending = [...order].reverse();
     for (const { range, index } of order) {
       const [start, end] = range;
       const line = work[start.line - first];
@@ -1465,7 +1491,13 @@ export class Document {
       if (from === to && action === "backspace") from = Math.max(0, from - 1);
       if (from === to && action === "delete")
         to = Math.min(line.length, to + 1);
-      const inserted = action === "type" ? text : "";
+      const inserted =
+        action !== "type"
+          ? ""
+          : Array.isArray(text)
+            ? (text[ascending.findIndex((entry) => entry.index === index)] ??
+              "")
+            : text;
       work[start.line - first] =
         line.slice(0, from) + inserted + line.slice(to);
       const delta = inserted.length - (to - from);

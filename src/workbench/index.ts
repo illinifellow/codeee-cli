@@ -1870,13 +1870,30 @@ export class Workbench {
     this.afterEdit();
   }
 
+  /**
+   * Pastes text the way VS Code does with several cursors: one line per cursor when the counts match, the whole text
+   * at every cursor when it is one line; otherwise the extra cursors go and the text is pasted once.
+   */
+  private pasteText(text: string, wholeLine: boolean) {
+    const document = this.tab?.document;
+    if (!document) return;
+    if (document.extras.length) {
+      const lines = text.replace(/\r\n?/g, "\n").replace(/\n$/, "").split("\n");
+      const cursors = document.extras.length + 1;
+      if (lines.length === cursors) return document.editAll("type", lines);
+      if (lines.length === 1) return document.editAll("type", lines[0]);
+      document.extras = [];
+    }
+    document.paste(text, wholeLine);
+  }
+
   private async paste() {
     const document = this.tab?.document;
     if (!document) return;
     const system = await readClipboard();
     const text = system ?? this.clipboard?.text ?? "";
     if (!text) return;
-    document.paste(
+    this.pasteText(
       text,
       Boolean(this.clipboard?.wholeLine && this.clipboard.text === text),
     );
@@ -3009,8 +3026,12 @@ export class Workbench {
       return this.afterEdit();
     }
     if (document.extras.length) {
-      if (key.name === "text" || key.name === "paste") {
-        document.editAll("type", key.text!.replace(/\n/g, " "));
+      if (key.name === "text") {
+        document.editAll("type", key.text!);
+        return this.afterEdit();
+      }
+      if (key.name === "paste") {
+        this.pasteText(key.text!, false);
         return this.afterEdit();
       }
       if (key.name === "backspace" || key.name === "delete") {
