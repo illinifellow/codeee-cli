@@ -22,6 +22,7 @@ import { fit, widthOf } from "@/text";
 import { availableUpdate, installUpdate } from "@/update";
 import type { Workbench } from "@/workbench";
 import { CodeView } from "./editor";
+import { SearchView } from "./search";
 import { SettingsPage } from "./settings";
 import { useTheme } from "./theme";
 
@@ -167,10 +168,20 @@ export const App = ({
       run: () => workbench.openPalette(":"),
     },
     {
+      label: "Search",
+      key: keys.search,
+      run: () => workbench.openSearch(false),
+    },
+    {
       label: "Explorer",
       key: keys.explorer,
       run: () =>
-        workbench.setSetting("settings.explorer", !config.settings.explorer),
+        workbench.side === "search"
+          ? workbench.showExplorer()
+          : workbench.setSetting(
+              "settings.explorer",
+              !config.settings.explorer,
+            ),
     },
     {
       label: "Settings",
@@ -192,14 +203,21 @@ export const App = ({
     }
   };
 
-  const explorer = showExplorer ? (
+  const explorer = !showExplorer ? null : workbench.side === "search" ? (
+    <SearchView
+      workbench={workbench}
+      width={sideWidth}
+      height={bodyHeight}
+      version={version}
+    />
+  ) : (
     <Explorer
       workbench={workbench}
       width={sideWidth}
       height={bodyHeight}
       version={version}
     />
-  ) : null;
+  );
   const status = workbench.status;
 
   return (
@@ -210,9 +228,11 @@ export const App = ({
       backgroundColor={theme.surface}
     >
       <Box height={1} width={width} overflow="hidden">
-        <Text color={palette.accent} bold>
-          {" codeee   "}
-        </Text>
+        <Box flexShrink={0}>
+          <Text color={palette.accent} bold wrap="truncate">
+            {" codeee   "}
+          </Text>
+        </Box>
         {tools.map((tool) => (
           <Clickable key={tool.label} flexShrink={0} onClick={tool.run}>
             <Text>
@@ -263,7 +283,11 @@ export const App = ({
             }}
           >
             <Text
-              color={focus === "explorer" ? palette.accent : palette.border}
+              color={
+                focus === "explorer" || focus === "search"
+                  ? palette.accent
+                  : palette.border
+              }
             >
               {`${glyphs.divider}\n`.repeat(bodyHeight).trimEnd()}
             </Text>

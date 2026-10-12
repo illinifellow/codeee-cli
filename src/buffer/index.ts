@@ -1104,6 +1104,25 @@ export class Document {
   }
 
   /**
+   * Replaces the whole text in one undo step, keeping the cursor on its line, as Format Document does.
+   * @param text the new contents
+   * @returns whether anything changed
+   */
+  setText(text: string) {
+    const lines = text.split(/\r?\n/);
+    if (
+      lines.length === this.lines.length &&
+      lines.every((line, index) => line === this.lines[index])
+    )
+      return false;
+    this.replaceBlock(0, this.lines.length, lines, {
+      cursor: this.cursor,
+      anchor: null,
+    });
+    return true;
+  }
+
+  /**
    * Prepares the text for saving.
    * @param trimTrailingWhitespace remove blanks at line ends
    * @param insertFinalNewline make the file end with a line break

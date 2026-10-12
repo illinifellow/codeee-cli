@@ -91,6 +91,12 @@ const KEYS: [string, string, string, string][] = [
     "Toggle Line Comment",
     "Comment out the selected lines, or uncomment them.",
   ],
+  [
+    "format",
+    "Edit",
+    "Format Document",
+    "Format the file with Prettier, as VS Code does: the project's Prettier and configuration, or the one the VS Code extension bundles.",
+  ],
   ["deleteLine", "Edit", "Delete Line", "Delete the selected lines."],
   [
     "duplicateLine",
@@ -109,6 +115,18 @@ const KEYS: [string, string, string, string][] = [
     "Go to the next match; with no search, search for the word at the cursor.",
   ],
   ["findPrevious", "Edit", "Find Previous", "Go to the previous match."],
+  [
+    "search",
+    "Edit",
+    "Find in Files",
+    "Show the Search view and search every file in the folder.",
+  ],
+  [
+    "replaceInFiles",
+    "Edit",
+    "Replace in Files",
+    "Show the Search view with replace, to replace across every file in the folder.",
+  ],
   ["selectAll", "Selection", "Select All", "Select the whole file."],
   [
     "selectLine",
@@ -241,6 +259,15 @@ export const SETTINGS: SettingSpec[] = [
     "Insert Final Newline",
     "When enabled, insert a final new line at the end of the file when saving it.",
     "boolean",
+  ),
+  setting(
+    "settings.formatOnSave",
+    "Text Editor",
+    "Formatting",
+    "Format On Save",
+    "Format a file on save with Prettier, as Format Document does.",
+    "boolean",
+    { common: true },
   ),
   setting(
     "settings.lineNumbers",

@@ -226,7 +226,7 @@ export const CodeView = memo(
           ? String(Math.abs(line - document.cursor.line))
           : String(line + 1);
       const gutterText = settings.lineNumbers
-        ? `${number.padStart(gutter - workbench.theme.spacing.gutterPadding - 1)}${" ".repeat(workbench.theme.spacing.gutterPadding + 1)}`
+        ? ` ${number.padStart(gutter - workbench.theme.spacing.gutterPadding - 1)}${" ".repeat(workbench.theme.spacing.gutterPadding)}`
         : " ";
       const matches = find
         ? find.matches.flatMap((match, index) =>

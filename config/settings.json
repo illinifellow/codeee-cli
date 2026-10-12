@@ -11,6 +11,7 @@
     "autoClosingBrackets": true,
     "trimTrailingWhitespace": false,
     "insertFinalNewline": false,
+    "formatOnSave": false,
     "explorer": true,
     "wheelLines": 3,
     "exclude": [".git", ".svn", ".hg", "CVS", ".DS_Store", "Thumbs.db"],
@@ -80,7 +81,10 @@
     "nextTab": "ctrl+pagedown",
     "previousTab": "ctrl+pageup",
     "findNext": "f3",
-    "findPrevious": "shift+f3"
+    "findPrevious": "shift+f3",
+    "format": "alt+shift+f",
+    "search": "ctrl+t",
+    "replaceInFiles": "ctrl+alt+t"
   },
   "themes": {
     "golden-brown": {

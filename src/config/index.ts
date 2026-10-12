@@ -52,6 +52,9 @@ export type KeyBindings = Record<
   | "deleteLine"
   | "duplicateLine"
   | "comment"
+  | "format"
+  | "search"
+  | "replaceInFiles"
   | "moveLineUp"
   | "moveLineDown"
   | "nextTab"
@@ -102,6 +105,8 @@ export interface EditorSettings {
   autoClosingBrackets: boolean;
   trimTrailingWhitespace: boolean;
   insertFinalNewline: boolean;
+  /** Formats a file with Prettier on save, as VS Code's `editor.formatOnSave`. */
+  formatOnSave: boolean;
   /** The explorer is shown. */
   explorer: boolean;
   wheelLines: number;

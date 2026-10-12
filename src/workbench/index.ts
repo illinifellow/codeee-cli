@@ -49,6 +49,14 @@ import {
   type Row,
 } from "@/files";
 import { DocumentHighlight, SyntaxHighlighter } from "@/highlight";
+import { formatText } from "@/format";
+import {
+  replaceInFile,
+  searchFolder,
+  searchPattern,
+  type FileResult,
+  type SearchMatch,
+} from "@/search";
 import { readGitStatus, type GitStatus } from "@/git";
 import { Icons } from "@/icons";
 import { bindingOf, type KeyEvent } from "@/keys";
@@ -64,7 +72,7 @@ import {
 } from "@/settings";
 
 /** Which part of the screen has the keyboard. */
-export type Focus = "editor" | "explorer" | "settings";
+export type Focus = "editor" | "explorer" | "settings" | "search";
 
 /** An editor tab. */
 export interface Tab {
@@ -80,6 +88,8 @@ export interface Tab {
   scrollLeft: number;
   /** Why the file is not shown as text (binary, too large, unreadable). */
   notice: string | null;
+  /** A format before saving is running. */
+  formatting?: boolean;
   /** Modification time when last read or written, to tell changes made elsewhere. */
   modified: number;
 }
@@ -165,6 +175,31 @@ export interface SettingsView {
   searching: boolean;
 }
 
+/** The Search view in the side bar, as VS Code's. */
+export interface SearchView {
+  query: Field;
+  replacement: Field;
+  include: Field;
+  exclude: Field;
+  replacing: boolean;
+  /** The include and exclude fields are shown. */
+  details: boolean;
+  options: FindOptions;
+  /** Which field has the keyboard; `null` when the results do. */
+  field: "query" | "replacement" | "include" | "exclude" | null;
+  results: FileResult[];
+  collapsed: Set<string>;
+  cursor: number;
+  top: number;
+  running: boolean;
+  error: string | null;
+}
+
+/** One row of the search results: a file, or one of its matches. */
+export type SearchRow =
+  | { kind: "file"; result: FileResult }
+  | { kind: "match"; result: FileResult; match: SearchMatch };
+
 /** A message at the toolbar's right end. */
 export interface Status {
   text: string;
@@ -182,6 +217,12 @@ let nextTabId = 1;
 
 /** How often git's status is read again, for commits and staging made elsewhere (the watcher skips `.git`). */
 const GIT_POLL_MS = 3000;
+
+/** The most matches the Search view collects, as VS Code's `search.maxResults`. */
+const SEARCH_MAX_MATCHES = 20000;
+
+/** Cells line numbers always get, so the code does not shift as a file grows past 9 or 99 lines, as in VS Code. */
+const MIN_NUMBER_CELLS = 3;
 
 const relativeTo = (root: string, path: string) =>
   relative(root, path) || basename(path);
@@ -210,6 +251,26 @@ export class Workbench {
     searching: false,
   };
   status: Status | null = null;
+  /** Which view the side bar shows. */
+  side: "explorer" | "search" = "explorer";
+  search: SearchView = {
+    query: field(),
+    replacement: field(),
+    include: field(),
+    exclude: field(),
+    replacing: false,
+    details: false,
+    options: { caseSensitive: false, regex: false, wholeWord: false },
+    field: "query",
+    results: [],
+    collapsed: new Set(),
+    cursor: 0,
+    top: 0,
+    running: false,
+    error: null,
+  };
+  private searchAbort: AbortController | null = null;
+  private searchTimer: ReturnType<typeof setTimeout> | null = null;
   update: string | null = null;
   /** Git's decorations for the explorer; `null` outside a repository. */
   git: GitStatus | null = null;
@@ -592,6 +653,14 @@ export class Workbench {
       });
     }
     const { settings } = this.config;
+    if (settings.formatOnSave && !tab.formatting) {
+      tab.formatting = true;
+      void this.formatDocument(index).finally(() => {
+        this.save(index, then);
+        tab.formatting = false;
+      });
+      return;
+    }
     tab.document.beforeSave(
       settings.trimTrailingWhitespace,
       settings.insertFinalNewline,
@@ -613,6 +682,26 @@ export class Workbench {
       );
     }
     this.changed();
+  }
+
+  /**
+   * Formats a file with Prettier, as VS Code's Format Document; one undo step, the cursor stays on its line.
+   * @param index the tab
+   * @returns once formatted; a failure is shown in the toolbar
+   */
+  async formatDocument(index = this.active) {
+    const tab = this.tabs[index];
+    const document = tab?.document;
+    if (!tab || !document) return;
+    const path = tab.path ?? join(this.root, tab.title);
+    const version = document.version;
+    try {
+      const formatted = await formatText(path, document.text());
+      if (document.version !== version) return;
+      if (document.setText(formatted)) this.afterEdit();
+    } catch (error) {
+      this.say(`Format Document: ${(error as Error).message}`, true);
+    }
   }
 
   /** Leaves codeee, asking about unsaved files first. */
@@ -1150,9 +1239,9 @@ export class Workbench {
   gutterWidth(tab = this.tab) {
     if (!tab?.document || !this.config.settings.lineNumbers) return 1;
     return (
-      String(tab.document.lines.length).length +
-      this.theme.spacing.gutterPadding +
-      1
+      1 +
+      Math.max(MIN_NUMBER_CELLS, String(tab.document.lines.length).length) +
+      this.theme.spacing.gutterPadding
     );
   }
 
@@ -1827,6 +1916,315 @@ export class Workbench {
     }
   }
 
+  // ── search across the folder ──────────────────────────────────────────
+
+  /**
+   * Shows the Search view with the selection, or the word at the cursor, as the query.
+   * @param replacing open the replace field too
+   */
+  openSearch(replacing = false) {
+    const view = this.search;
+    const document = this.tab?.document;
+    const selected =
+      document?.hasSelection && !document.selectedText().includes("\n")
+        ? document.selectedText()
+        : null;
+    if (selected) view.query = field(selected, true);
+    else view.query = { ...view.query, selected: view.query.value.length > 0 };
+    view.replacing = view.replacing || replacing;
+    view.field = replacing && view.query.value ? "replacement" : "query";
+    this.side = "search";
+    this.focus = "search";
+    if (!this.config.settings.explorer)
+      this.setSetting("settings.explorer", true);
+    this.runSearch(0);
+    this.changed();
+  }
+
+  /**
+   * Starts the search again after a short pause, so typing does not search on every key.
+   * @param delay milliseconds to wait
+   */
+  runSearch(delay = 250) {
+    if (this.searchTimer) clearTimeout(this.searchTimer);
+    this.searchTimer = setTimeout(() => void this.searchNow(), delay);
+  }
+
+  private async searchNow() {
+    const view = this.search;
+    this.searchAbort?.abort();
+    const abort = new AbortController();
+    this.searchAbort = abort;
+    const query = {
+      query: view.query.value,
+      include: view.include.value,
+      exclude: view.exclude.value,
+      ...view.options,
+    };
+    view.error = null;
+    if (!query.query) {
+      view.results = [];
+      view.running = false;
+      return this.changed();
+    }
+    view.running = true;
+    this.changed();
+    try {
+      const results = await searchFolder(this.root, query, {
+        exclude: [
+          ...this.config.settings.exclude,
+          ...this.config.settings.searchExclude,
+        ],
+        maxFiles: this.config.limits.quickOpenFiles,
+        maxMatches: SEARCH_MAX_MATCHES,
+        maxBytes: this.config.limits.maxFileMegabytes * 1024 * 1024,
+        signal: abort.signal,
+        onProgress: (partial) => {
+          if (abort.signal.aborted) return;
+          view.results = partial;
+          this.changed();
+        },
+      });
+      if (abort.signal.aborted) return;
+      for (const tab of this.tabs) {
+        if (!tab.path || !tab.document?.dirty) continue;
+        const matches = tab.document.find(query.query, query).map((match) => ({
+          ...match,
+          text: tab.document!.lines[match.line],
+        }));
+        const others = results.filter((result) => result.path !== tab.path);
+        results.length = 0;
+        results.push(
+          ...others,
+          ...(matches.length ? [{ path: tab.path, matches }] : []),
+        );
+      }
+      results.sort((a, b) => a.path.localeCompare(b.path));
+      view.results = results;
+      view.cursor = Math.min(
+        view.cursor,
+        Math.max(0, this.searchRows().length - 1),
+      );
+    } catch (error) {
+      view.error = (error as Error).message;
+      view.results = [];
+    }
+    view.running = false;
+    this.changed();
+  }
+
+  /** @returns the result rows: each file, then its matches unless it is collapsed */
+  searchRows(): SearchRow[] {
+    return this.search.results.flatMap((result) => [
+      { kind: "file" as const, result },
+      ...(this.search.collapsed.has(result.path)
+        ? []
+        : result.matches.map((match) => ({
+            kind: "match" as const,
+            result,
+            match,
+          }))),
+    ]);
+  }
+
+  /**
+   * Acts on a result row: a file folds or unfolds, a match opens with the match selected.
+   * @param index the row
+   * @param keepFocus leave the keyboard in the results
+   */
+  openSearchRow(index: number, keepFocus = false) {
+    const row = this.searchRows()[index];
+    if (!row) return;
+    this.search.cursor = index;
+    this.search.field = null;
+    if (row.kind === "file") {
+      if (this.search.collapsed.has(row.result.path))
+        this.search.collapsed.delete(row.result.path);
+      else this.search.collapsed.add(row.result.path);
+      return this.changed();
+    }
+    this.open(row.result.path, { quiet: keepFocus });
+    const document = this.tab?.document;
+    if (document) {
+      document.select(
+        { line: row.match.line, column: row.match.start },
+        { line: row.match.line, column: row.match.end },
+      );
+      this.reveal(true);
+    }
+    this.focus = keepFocus ? "search" : "editor";
+    this.changed();
+  }
+
+  /**
+   * Replaces matches across files: open files are edited and left unsaved, the others are written.
+   * @param results the files and matches to replace; all results when absent
+   */
+  async replaceInFolder(results = this.search.results) {
+    const view = this.search;
+    const pattern = view.options.regex
+      ? searchPattern({
+          query: view.query.value,
+          include: "",
+          exclude: "",
+          ...view.options,
+        })
+      : null;
+    let count = 0;
+    for (const result of results) {
+      const tab = this.tabs.find(
+        (open) => open.path === result.path && open.document,
+      );
+      if (tab?.document) {
+        const matches = tab.document.find(view.query.value, view.options);
+        count += tab.document.replaceMatches(
+          matches,
+          view.replacement.value,
+          pattern ?? undefined,
+        );
+        continue;
+      }
+      try {
+        count += await replaceInFile(result, view.replacement.value, pattern);
+      } catch (error) {
+        this.say(
+          `Failed to replace in ${basename(result.path)}: ${(error as Error).message}`,
+          true,
+        );
+      }
+    }
+    this.say(
+      `Replaced ${count} occurrence${count === 1 ? "" : "s"} across ${results.length} file${results.length === 1 ? "" : "s"} with '${view.replacement.value}'`,
+    );
+    this.runSearch(0);
+    this.refreshGit();
+    this.changed();
+  }
+
+  /** Asks, as VS Code does, then replaces every result. */
+  confirmReplaceAll() {
+    const view = this.search;
+    const files = view.results.length;
+    const count = view.results.reduce(
+      (total, result) => total + result.matches.length,
+      0,
+    );
+    if (!count) return;
+    this.ask({
+      title: "Replace All",
+      message: `Replace ${count} occurrence${count === 1 ? "" : "s"} across ${files} file${files === 1 ? "" : "s"} with '${view.replacement.value}'?`,
+      buttons: [
+        {
+          label: "Replace",
+          primary: true,
+          run: () => void this.replaceInFolder(),
+        },
+        { label: "Cancel", run: () => undefined },
+      ],
+    });
+  }
+
+  /** Flips a search option and searches again. */
+  toggleSearchOption(option: keyof FindOptions) {
+    this.search.options[option] = !this.search.options[option];
+    this.runSearch(0);
+    this.changed();
+  }
+
+  private searchKey(key: KeyEvent) {
+    const view = this.search;
+    const rows = this.searchRows();
+    const binding = bindingOf(key);
+    if (binding === "alt+c") return this.toggleSearchOption("caseSensitive");
+    if (binding === "alt+w") return this.toggleSearchOption("wholeWord");
+    if (binding === "alt+r") return this.toggleSearchOption("regex");
+    if (view.field) {
+      const order = [
+        "query",
+        ...(view.replacing ? ["replacement"] : []),
+        ...(view.details ? ["include", "exclude"] : []),
+      ] as const;
+      if (key.name === "escape") {
+        view.field = null;
+        if (this.tab)
+          this.focus = this.tab.kind === "settings" ? "settings" : "editor";
+        return;
+      }
+      if (
+        key.name === "tab" ||
+        (key.name === "down" && view.field !== order.at(-1)) ||
+        (key.name === "up" && view.field !== "query")
+      ) {
+        const index = order.indexOf(view.field as (typeof order)[number]);
+        view.field = order[
+          (index + (key.shift || key.name === "up" ? -1 : 1) + order.length) %
+            order.length
+        ] as SearchView["field"];
+        return;
+      }
+      if (
+        key.name === "down" ||
+        (key.name === "enter" && view.field !== "replacement")
+      ) {
+        if (key.name === "enter") this.runSearch(0);
+        if (rows.length && key.name === "down") {
+          view.field = null;
+          view.cursor = 0;
+        }
+        return;
+      }
+      if (key.name === "enter" && view.field === "replacement")
+        return this.confirmReplaceAll();
+      const name = view.field;
+      const next = editField(view[name], key);
+      if (!next) return;
+      view[name] = next;
+      if (name !== "replacement") this.runSearch();
+      return;
+    }
+    switch (key.name) {
+      case "up":
+        if (view.cursor === 0) view.field = "query";
+        else view.cursor--;
+        return;
+      case "down":
+        view.cursor = Math.min(rows.length - 1, view.cursor + 1);
+        return;
+      case "pageup":
+        view.cursor = Math.max(0, view.cursor - this.view.rows);
+        return;
+      case "pagedown":
+        view.cursor = Math.min(rows.length - 1, view.cursor + this.view.rows);
+        return;
+      case "enter":
+        return this.openSearchRow(view.cursor);
+      case "text":
+        if (key.text === " ") return this.openSearchRow(view.cursor, true);
+        return;
+      case "left":
+        if (rows[view.cursor]?.kind === "file")
+          view.collapsed.add(rows[view.cursor].result.path);
+        return;
+      case "right":
+        if (rows[view.cursor]?.kind === "file")
+          view.collapsed.delete(rows[view.cursor].result.path);
+        return;
+      case "escape":
+        if (this.tab)
+          this.focus = this.tab.kind === "settings" ? "settings" : "editor";
+        return;
+    }
+  }
+
+  /** Shows the explorer in the side bar. */
+  showExplorer() {
+    this.side = "explorer";
+    this.focus = "explorer";
+    if (!this.config.settings.explorer)
+      this.setSetting("settings.explorer", true);
+    this.changed();
+  }
+
   // ── commands and keys ─────────────────────────────────────────────────
 
   /** @returns every command, for key bindings, the toolbar and Quick Open's `>` mode */
@@ -1862,16 +2260,27 @@ export class Workbench {
         action: "explorer",
         label: "View: Toggle Primary Side Bar Visibility",
         run: () =>
-          this.setSetting("settings.explorer", !this.config.settings.explorer),
+          this.side === "search"
+            ? this.showExplorer()
+            : this.setSetting(
+                "settings.explorer",
+                !this.config.settings.explorer,
+              ),
       },
       {
         action: "focusExplorer",
         label: "File: Focus on Files Explorer",
-        run: () => {
-          if (!this.config.settings.explorer)
-            this.setSetting("settings.explorer", true);
-          this.focus = "explorer";
-        },
+        run: () => this.showExplorer(),
+      },
+      {
+        action: "search",
+        label: "Search: Find in Files",
+        run: () => this.openSearch(false),
+      },
+      {
+        action: "replaceInFiles",
+        label: "Search: Replace in Files",
+        run: () => this.openSearch(true),
       },
       {
         action: "settings",
@@ -1925,6 +2334,11 @@ export class Workbench {
         action: "moveLineDown",
         label: "Move Line Down",
         run: () => this.withDocument((document) => document.moveLines(1)),
+      },
+      {
+        action: "format",
+        label: "Format Document",
+        run: () => void this.formatDocument(),
       },
       {
         action: "comment",
@@ -1998,12 +2412,14 @@ export class Workbench {
         action && this.commands().find((entry) => entry.action === action);
       const typing =
         (this.find?.field && this.focus === "editor") ||
+        (this.focus === "search" && this.search.field) ||
         (this.focus === "settings" &&
           (this.settingsView.searching || this.settingsView.editing));
       const fieldKeys = ["copy", "cut", "paste", "selectAll", "undo", "redo"];
       if (command && !(typing && fieldKeys.includes(action))) command.run();
       else if (this.find?.field && this.focus === "editor") this.findKey(key);
       else if (this.focus === "explorer") this.explorerKey(key);
+      else if (this.focus === "search") this.searchKey(key);
       else if (this.focus === "settings") this.settingsKey(key);
       else if (this.tab?.document) this.editorKey(key);
       else if (key.name === "escape" || key.name === "tab")
