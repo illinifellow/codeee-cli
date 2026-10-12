@@ -20,9 +20,11 @@ codeee is the sibling of [gittt](https://github.com/illinifellow/gittt-cli): git
 - **Explorer:** the folder's tree with the icons of your VS Code icon theme, git states (modified, untracked, added, deleted, conflicted, ignored) and unsaved files; new file, new folder, rename, delete to the Trash, copy path.
 - **Tabs and Quick Open:** files open in tabs and come back next time with their cursor where you left it; `^P` finds any file by fuzzy name, `:` goes to a line, `>` runs any command.
 - **Highlighting:** every language shiki bundles (over 240), found the way VS Code finds them (its installed language extensions, file names, shebangs), coloured by your VS Code theme with your `editor.tokenColorCustomizations`.
-- **Editor groups:** split the editor right or down, drag tabs between groups or to the right edge for a new one, toggle the layout; tabs wrap onto more rows when they do not fit. Zen Mode hides everything but the code.
-- **Hot exit:** unsaved files are backed up while you work and come back the next time, so quitting never asks and a crash loses nothing.
+- **Editor groups:** split the editor right or down, drag tabs between groups or to the right edge for a new one, toggle the layout, drag the divider between groups; double-click the tab bar for a new file; tabs wrap onto more rows when they do not fit. Zen Mode hides everything but the code.
+- **Hot exit:** unsaved files, untitled ones too, are backed up while you work and come back the next time, so quitting never asks and a crash loses nothing. Editor groups and their tabs come back as you left them.
 - **Explorer as in VS Code:** compact folders, a single click opens a preview tab, drag files between folders, Enter renames, Backspace deletes to the Trash.
+- **Follows your VS Code:** codeee starts from the settings of the VS Code on the machine (indentation, word wrap, whitespace, minimap, line numbers, saving, the explorer, tabs, sticky scroll and more); what you change in codeee wins.
+- **Hover:** problems show their message and rule under the pointer, tabs their path; menus and lists follow the pointer.
 - **IntelliSense:** suggestions as you type from the words of your open files and from snippets; ↑↓ to choose, Tab or Enter to insert.
 - **Source Control:** staged and unstaged changes, + and − to stage, a message box and Commit, a click opens the changes (`⌥G`).
 - **Multiple cursors:** `^D` adds the next occurrence of the selection, `⌥`-click adds a cursor; typing, Backspace, Delete, arrows and Home/End act on every one. Occurrences of the word at the cursor are highlighted.
