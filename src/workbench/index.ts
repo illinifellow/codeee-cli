@@ -4618,6 +4618,32 @@ export class Workbench {
           ),
       },
       {
+        action: "closeGroup",
+        label: "View: Close Editor Group",
+        run: () => {
+          for (let index = this.tabs.length - 1; index >= 0; index--)
+            this.close(index);
+        },
+      },
+      {
+        action: "joinGroups",
+        label: "View: Join All Editor Groups",
+        run: () => {
+          const all: Tab[] = [];
+          for (const group of this.groups)
+            for (const tab of group.tabs)
+              if (!all.some((other) => other.path && other.path === tab.path))
+                all.push(tab);
+          const shown = this.tab;
+          this.groups = [
+            { tabs: all, active: Math.max(0, shown ? all.indexOf(shown) : 0) },
+          ];
+          this.group = 0;
+          this.groupSizes = [];
+          this.saveSession();
+        },
+      },
+      {
         action: "outline",
         label: "View: Show Outline",
         run: () => {
