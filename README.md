@@ -20,7 +20,10 @@ codeee is the sibling of [gittt](https://github.com/illinifellow/gittt-cli): git
 - **Explorer:** the folder's tree with the icons of your VS Code icon theme, git states (modified, untracked, added, deleted, conflicted, ignored) and unsaved files; new file, new folder, rename, delete to the Trash, copy path.
 - **Tabs and Quick Open:** files open in tabs and come back next time with their cursor where you left it; `^P` finds any file by fuzzy name, `:` goes to a line, `>` runs any command.
 - **Highlighting:** every language shiki bundles (over 240), found the way VS Code finds them (its installed language extensions, file names, shebangs), coloured by your VS Code theme with your `editor.tokenColorCustomizations`.
-- **Multiple cursors:** `^D` adds the next occurrence of the selection; typing, Backspace and Delete edit every one.
+- **Editor groups:** split the editor (View: Split Editor), drag tabs between groups or to the right edge for a new one; tabs wrap onto more rows when they do not fit.
+- **Hot exit:** unsaved files are backed up while you work and come back the next time, so quitting never asks and a crash loses nothing.
+- **Explorer as in VS Code:** compact folders, a single click opens a preview tab, drag files between folders, Enter renames, Backspace deletes to the Trash.
+- **Multiple cursors:** `^D` adds the next occurrence of the selection, `⌥`-click adds a cursor; typing, Backspace, Delete, arrows and Home/End act on every one. Occurrences of the word at the cursor are highlighted.
 - **Editing as in VS Code:** auto-indent, auto-closing brackets and quotes, word moves and deletes, Tab and Shift+Tab on selections, line comments, move, copy and delete lines, whole-line copy and paste, undo and redo grouped by typing.
 - **Find and replace:** in the file with case, whole-word and regular-expression options; across the folder in the Search view with files to include and exclude, and Replace All.
 - **Format Document** with Prettier: the project's Prettier and configuration, or the one the VS Code extension bundles, so the result is what VS Code gives. Optional format on save.
@@ -31,6 +34,8 @@ codeee is the sibling of [gittt](https://github.com/illinifellow/gittt-cli): git
 - **Auto save** after a delay or on focus change, as `files.autoSave`.
 - **Code intelligence without a language server:** Go to Definition (`F12`) in the file and across the folder, Rename Symbol (`F2`) in the file, enclosing symbols in the breadcrumbs, code folding by indentation.
 - **HTML and JSX:** Emmet abbreviations on Tab (`ul>li.item$*3`), closing tags typed for you.
+- **Word wrap** (`⌥Z`, on for plain text), whitespace drawn, fold controls beside every block, Fold All and Unfold All (`⌥-` `⌥=`), snippet tab stops.
+- **Text commands:** upper, lower and title case, sort lines, join lines, delete duplicate lines, trim trailing whitespace; Open Folder and Open Recent switch folders in place.
 - **Small things VS Code users expect:** Reopen Closed Editor, Change Language Mode and Change Indentation commands, type a name in the explorer to jump to it, whitespace shown inside selections.
 - **Option as Alt** even when the terminal sends Option as text, so every `⌥` shortcut works in a stock iTerm2 or Terminal.
 - **Settings page** like VS Code's: search, table of contents, every option with its description and control, modified marks, reset, and the JSON file one click away.
