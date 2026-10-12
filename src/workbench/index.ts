@@ -3558,16 +3558,24 @@ export class Workbench {
       return match ? [{ path, ...match }] : [];
     });
     scored.sort((a, b) => b.score - a.score);
-    const recent = new Set(
-      this.tabs.flatMap((tab) =>
-        tab.path ? [relativeTo(this.root, tab.path)] : [],
-      ),
-    );
+    const history = [
+      ...(this.tab?.path ? [this.tab.path] : []),
+      ...this.allTabs().flatMap((tab) => (tab.path ? [tab.path] : [])),
+      ...Object.keys(this.config.state.positions).reverse(),
+    ]
+      .filter((path) => path.startsWith(`${this.root}/`))
+      .map((path) => relativeTo(this.root, path));
+    const rank = new Map<string, number>();
+    history.forEach((path, index) => {
+      if (!rank.has(path)) rank.set(path, index);
+    });
     const ordered = query
       ? scored
       : [
-          ...scored.filter((entry) => recent.has(entry.path)),
-          ...scored.filter((entry) => !recent.has(entry.path)),
+          ...scored
+            .filter((entry) => rank.has(entry.path))
+            .sort((a, b) => rank.get(a.path)! - rank.get(b.path)!),
+          ...scored.filter((entry) => !rank.has(entry.path)),
         ];
     palette.items = ordered.slice(0, 200).map((entry) => ({
       label: basename(entry.path),
