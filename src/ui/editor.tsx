@@ -158,6 +158,39 @@ const occurrencesIn = (
   return ranges;
 };
 
+/**
+ * The indent guide of the block the cursor is in, drawn brighter, as VS Code's active indent guide.
+ * @returns the guide's cell and the lines it runs through, or `null` at the top level
+ */
+const activeGuideOf = (document: Document) => {
+  const size = document.indentation.size;
+  const indent = (line: number) =>
+    cellOf(
+      indentOf(document.lines[line]),
+      indentOf(document.lines[line]).length,
+      size,
+    );
+  let line = document.cursor.line;
+  while (line > 0 && !document.lines[line].trim()) line--;
+  const own = indent(line);
+  let opener = line - 1;
+  while (
+    opener >= 0 &&
+    (!document.lines[opener].trim() || indent(opener) >= own)
+  )
+    opener--;
+  if (opener < 0) return null;
+  const cell = indent(opener);
+  let end = line;
+  while (
+    end + 1 < document.lines.length &&
+    (!document.lines[end + 1].trim() || indent(end + 1) > cell)
+  )
+    end++;
+  while (end > line && !document.lines[end].trim()) end--;
+  return { cell, from: opener, to: end };
+};
+
 /** Cells the minimap takes, and the narrowest editor that shows one. */
 const MINIMAP_CELLS = 10;
 const MINIMAP_MIN_EDITOR = 60;
@@ -293,7 +326,12 @@ const codeRow = (
     bracketColors: Map<number, string>;
     /** Cells where indent guides are drawn, inside the leading blanks. */
     guides: number[];
-    guide: { glyph: string; color: string };
+    guide: {
+      glyph: string;
+      color: string;
+      active: string;
+      activeCell: number | null;
+    };
     /** Colour literals of the line, each drawn on its own colour. */
     swatches: { start: number; end: number; color: string }[];
     /** Text drawn after the line's end in the given colour, as the current line blame. */
@@ -400,7 +438,9 @@ const codeRow = (
           : swatch && background === swatch.color
             ? contrastOn(swatch.color)
             : guide || whitespace
-              ? options.guide.color
+              ? whitespace || placed.start !== options.guide.activeCell
+                ? options.guide.color
+                : options.guide.active
               : (options.bracketColors.get(column) ??
                 segment?.color ??
                 options.defaultColor),
@@ -536,6 +576,7 @@ export const CodeView = memo(
       visible.findIndex((line) => line >= tab.scrollTop),
     );
     const occurrence = focused ? occurrenceOf(document) : null;
+    const activeGuide = settings.guides ? activeGuideOf(document) : null;
     const rows: ReactNode[] = [];
     const wrap = settings.wordWrap || tab.language === null;
     const entries: {
@@ -686,7 +727,15 @@ export const CodeView = memo(
                 document,
               )
             : [],
-          guide: { glyph: glyphs.guide, color: palette.guide },
+          guide: {
+            glyph: glyphs.guide,
+            color: palette.guide,
+            active: palette.textMuted,
+            activeCell:
+              activeGuide && line > activeGuide.from && line <= activeGuide.to
+                ? activeGuide.cell
+                : null,
+          },
           swatches: settings.colorDecorators
             ? colorSwatches(document.lines[line])
             : [],
