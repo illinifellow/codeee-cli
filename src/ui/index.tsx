@@ -583,6 +583,35 @@ const Explorer = ({
         count: tab.diagnostics.length,
         error: tab.diagnostics.some((problem) => problem.severity === "error"),
       });
+  const input = workbench.explorerInput;
+  const creating = input && input.kind !== "rename" ? input : null;
+  const anchor = creating
+    ? creating.folder === workbench.root
+      ? -1
+      : rows.findIndex((row) => row.path === creating.folder)
+    : -2;
+  const inputLine = creating ? (
+    <Box key="explorer-input" height={1} width={width}>
+      <Text>
+        {" ".repeat(
+          1 + (anchor >= 0 ? rows[anchor].depth + 1 : 0) * spacing.indent,
+        )}
+      </Text>
+      <Text color={creating.kind === "folder" ? palette.folder : palette.icon}>
+        {creating.kind === "folder" ? glyphs.folderClosed : "▫"}{" "}
+      </Text>
+      <FieldText
+        state={creating.field}
+        width={Math.max(
+          4,
+          width -
+            3 -
+            (1 + (anchor >= 0 ? rows[anchor].depth + 1 : 0) * spacing.indent),
+        )}
+        focused
+      />
+    </Box>
+  ) : null;
   const lines: ReactNode[] = rows
     .slice(top, top + visible)
     .map((row, offset) => {
@@ -694,7 +723,15 @@ const Explorer = ({
               {icon.glyph}
             </Text>
             <Text> </Text>
-            <Text color={nameColor}>{name}</Text>
+            {input?.kind === "rename" && input.path === row.path ? (
+              <FieldText
+                state={input.field}
+                width={Math.max(4, width - widthOf(indent) - 3)}
+                focused
+              />
+            ) : (
+              <Text color={nameColor}>{name}</Text>
+            )}
             <Text
               color={
                 dirty.has(row.path)
@@ -748,7 +785,14 @@ const Explorer = ({
         }}
         onRightClick={(event) => workbench.explorerMenu(-1, event.x, event.y)}
       >
-        {lines}
+        {anchor === -1 ? inputLine : null}
+        {anchor >= 0
+          ? [
+              ...lines.slice(0, anchor - top + 1),
+              inputLine,
+              ...lines.slice(anchor - top + 1),
+            ]
+          : lines}
       </Clickable>
     </Box>
   );
