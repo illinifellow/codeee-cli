@@ -18,6 +18,7 @@ import {
   cpSync,
   type FSWatcher,
 } from "node:fs";
+import { spawn } from "node:child_process";
 import { homedir } from "node:os";
 import {
   basename,
@@ -371,3 +372,19 @@ export const watchFolder = (
  */
 export const expandPath = (path: string) =>
   resolve(path.replace(/^~(?=$|\/)/, homedir()));
+
+/**
+ * Opens a link in the default browser, as a Cmd+click on a link does in VS Code.
+ * @param url the link; failures (no browser, no opener) are ignored
+ */
+export const openExternal = (url: string) => {
+  const command =
+    process.platform === "darwin"
+      ? "open"
+      : process.platform === "win32"
+        ? "explorer"
+        : "xdg-open";
+  spawn(command, [url], { detached: true, stdio: "ignore" })
+    .on("error", () => undefined)
+    .unref();
+};

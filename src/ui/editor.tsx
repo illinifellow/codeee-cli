@@ -20,6 +20,7 @@ import { Clickable, type LocalMouseEvent } from "@/mouse/regions";
 import { fit, placeText, widthOf } from "@/text";
 import type { Tab, Workbench } from "@/workbench";
 import { foldEnd } from "@/folding";
+import { openExternal } from "@/files";
 import { stickyLines } from "@/symbols";
 import { useTheme } from "./theme";
 
@@ -925,6 +926,16 @@ export const CodeView = memo(
             return;
           }
           if (event.ctrl) {
+            const text = document.lines[position.line];
+            const link = [...text.matchAll(/https?:\/\/[^\s"'<>)\]]+/g)].find(
+              (match) =>
+                position.column >= match.index &&
+                position.column <= match.index + match[0].length,
+            );
+            if (link) {
+              openExternal(link[0]);
+              return;
+            }
             document.setCursor(position);
             void workbench.goToDefinition();
             return;
