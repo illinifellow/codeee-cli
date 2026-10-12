@@ -171,6 +171,8 @@ export interface FindState {
 /** One Quick Open entry. */
 export interface PaletteItem {
   label: string;
+  /** Shows what choosing the entry would do while it is highlighted, as a theme preview. */
+  preview?: () => void;
   detail?: string;
   /** Offsets in `label` the query matched, drawn in the accent. */
   positions?: number[];
@@ -3558,16 +3560,24 @@ export class Workbench {
       return match ? [{ path, ...match }] : [];
     });
     scored.sort((a, b) => b.score - a.score);
-    const recent = new Set(
-      this.tabs.flatMap((tab) =>
-        tab.path ? [relativeTo(this.root, tab.path)] : [],
-      ),
-    );
+    const history = [
+      ...(this.tab?.path ? [this.tab.path] : []),
+      ...this.allTabs().flatMap((tab) => (tab.path ? [tab.path] : [])),
+      ...Object.keys(this.config.state.positions).reverse(),
+    ]
+      .filter((path) => path.startsWith(`${this.root}/`))
+      .map((path) => relativeTo(this.root, path));
+    const rank = new Map<string, number>();
+    history.forEach((path, index) => {
+      if (!rank.has(path)) rank.set(path, index);
+    });
     const ordered = query
       ? scored
       : [
-          ...scored.filter((entry) => recent.has(entry.path)),
-          ...scored.filter((entry) => !recent.has(entry.path)),
+          ...scored
+            .filter((entry) => rank.has(entry.path))
+            .sort((a, b) => rank.get(a.path)! - rank.get(b.path)!),
+          ...scored.filter((entry) => !rank.has(entry.path)),
         ];
     palette.items = ordered.slice(0, 200).map((entry) => ({
       label: basename(entry.path),
@@ -3611,9 +3621,69 @@ export class Workbench {
 
   private paletteKey(key: KeyEvent) {
     const palette = this.palette!;
+    const before = palette.cursor;
+    this.paletteMove(key);
+    if (this.previewing && palette.cursor !== before)
+      palette.items[palette.cursor]?.preview?.();
+  }
+
+  /** A theme picked in Preferences: Color Theme is shown before it is chosen, as VS Code previews themes. */
+  private previewing = false;
+
+  /** Closes Quick Open without choosing, undoing a theme preview. */
+  closePalette() {
+    this.palette = null;
+    this.paletteSource = null;
+    if (this.previewing) {
+      this.previewing = false;
+      this.onConfig(this.config);
+    }
+    this.changed();
+  }
+
+  /** Opens Preferences: Color Theme, previewing each theme as the list moves over it. */
+  pickTheme() {
+    const themes = ["vscode", "auto", ...Object.keys(this.config.themes)];
+    this.palette = {
+      field: field(),
+      cursor: Math.max(0, themes.indexOf(this.config.settings.theme)),
+      placeholder: "Select Color Theme (Up/Down Keys to Preview)",
+      items: [],
+    };
+    this.paletteSource = (query) =>
+      themes
+        .filter((name) => fuzzyMatch(name, query))
+        .map((name) => ({
+          label: name,
+          detail: name === this.config.settings.theme ? "current" : undefined,
+          preview: () =>
+            this.onConfig({
+              ...this.config,
+              settings: { ...this.config.settings, theme: name },
+            }),
+          run: () => {
+            this.previewing = false;
+            this.setSetting("settings.theme", name);
+          },
+        }));
+    this.filterPalette();
+    this.palette.cursor = Math.max(
+      0,
+      themes.indexOf(this.config.settings.theme),
+    );
+    this.previewing = true;
+    this.changed();
+  }
+
+  private paletteMove(key: KeyEvent) {
+    const palette = this.palette!;
     if (key.name === "escape") {
       this.palette = null;
       this.paletteSource = null;
+      if (this.previewing) {
+        this.previewing = false;
+        this.onConfig(this.config);
+      }
     } else if (key.name === "enter") this.choosePalette(palette.cursor);
     else if (key.name === "up")
       palette.cursor = Math.max(0, palette.cursor - 1);
@@ -4642,6 +4712,49 @@ export class Workbench {
           this.groupSizes = [];
           this.saveSession();
         },
+      },
+      {
+        action: "colorTheme",
+        label: "Preferences: Color Theme",
+        run: () => this.pickTheme(),
+      },
+      {
+        action: "keyboardShortcuts",
+        label: "Preferences: Open Keyboard Shortcuts",
+        run: () => {
+          this.openSettings();
+          this.settingsView.category = "Keyboard Shortcuts";
+          this.settingsView.cursor = 0;
+          this.settingsView.top = 0;
+          this.settingsView.searching = false;
+        },
+      },
+      {
+        action: "toggleStickyScroll",
+        label: "View: Toggle Sticky Scroll",
+        run: () =>
+          this.setSetting(
+            "settings.stickyScroll",
+            !this.config.settings.stickyScroll,
+          ),
+      },
+      {
+        action: "toggleRelativeNumbers",
+        label: "View: Toggle Relative Line Numbers",
+        run: () =>
+          this.setSetting(
+            "settings.relativeLineNumbers",
+            !this.config.settings.relativeLineNumbers,
+          ),
+      },
+      {
+        action: "toggleCompactFolders",
+        label: "Explorer: Toggle Compact Folders",
+        run: () =>
+          this.setSetting(
+            "settings.compactFolders",
+            !this.config.settings.compactFolders,
+          ),
       },
       {
         action: "outline",

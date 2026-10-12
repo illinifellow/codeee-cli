@@ -1217,7 +1217,7 @@ const Overlays = ({
   if (!overlay) return null;
   const close = () => {
     if (dialog) return;
-    workbench.palette = null;
+    if (workbench.palette) workbench.closePalette();
     workbench.menu = null;
     workbench.changed();
   };
