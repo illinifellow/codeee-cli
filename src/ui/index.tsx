@@ -954,6 +954,7 @@ const Breadcrumbs = ({
         : tab
           ? [tab.title]
           : [];
+  const pathCount = parts.length;
   const document = tab?.document;
   if (document && tab) {
     const symbols = workbench.symbolsOf(tab);
@@ -968,22 +969,39 @@ const Breadcrumbs = ({
         .map((symbol) => symbol.name),
     );
   }
+  const focusTab = () => {
+    const group = workbench.groups.findIndex(
+      (entry) => tab && entry.tabs.includes(tab),
+    );
+    if (group >= 0) workbench.focusGroup(group);
+  };
+  let used = 1;
   return (
-    <Clickable
-      height={1}
-      width={width}
-      onClick={() => {
-        const group = workbench.groups.findIndex(
-          (entry) => tab && entry.tabs.includes(tab),
+    <Box height={1} width={width} overflow="hidden">
+      <Text> </Text>
+      {parts.map((part, index) => {
+        const label = `${index ? " › " : ""}${part}`;
+        used += widthOf(label);
+        if (used > width) return null;
+        return (
+          <Clickable
+            key={`${index}-${part}`}
+            flexShrink={0}
+            onClick={() => {
+              focusTab();
+              if (index >= pathCount) return workbench.openPalette("@");
+              if (tab?.path && index < pathCount - 1) {
+                const folder = parts.slice(0, index + 1).join("/");
+                return workbench.openPalette(`${folder}/`);
+              }
+              if (tab?.document) workbench.openPalette("@");
+            }}
+          >
+            <Text color={palette.textMuted}>{label}</Text>
+          </Clickable>
         );
-        if (group >= 0) workbench.focusGroup(group);
-        if (tab?.document) workbench.openPalette("@");
-      }}
-    >
-      <Text color={palette.textMuted}>
-        {fit(parts.length ? ` ${parts.join(" › ")}` : "", width)}
-      </Text>
-    </Clickable>
+      })}
+    </Box>
   );
 };
 
