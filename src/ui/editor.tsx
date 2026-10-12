@@ -227,6 +227,8 @@ const codeRow = (
     /** Columns of the cursors on the line. */
     cursors: number[];
     lineBackground?: string;
+    /** Which whitespace is drawn: `none`, `selection` or `all`. */
+    whitespace: string;
     /** Ranges ESLint reported on the line, drawn underlined. */
     underlines: { start: number; end: number }[];
     /** Colours of brackets by column, by nesting depth. */
@@ -316,7 +318,8 @@ const codeRow = (
         !atCursor;
       const whitespace =
         !atCursor &&
-        selected(column) &&
+        options.whitespace !== "none" &&
+        (options.whitespace === "all" || selected(column)) &&
         (placed.source === " " || placed.source === "\t");
       const visible = guide
         ? options.guide.glyph
@@ -470,7 +473,7 @@ export const CodeView = memo(
       visible.findIndex((line) => line >= tab.scrollTop),
     );
     const rows: ReactNode[] = [];
-    const wrap = settings.wordWrap;
+    const wrap = settings.wordWrap || tab.language === null;
     const entries: {
       line: number;
       left: number;
@@ -564,7 +567,8 @@ export const CodeView = memo(
       const folded = tab.folds?.has(line) ?? false;
       const foldMark = folded
         ? "▸"
-        : current && foldEnd(document.lines, line) !== null
+        : (current || settings.showFoldingControls === "always") &&
+            foldEnd(document.lines, line) !== null
           ? "▾"
           : " ";
       const gutterText = !entry.first
@@ -622,6 +626,7 @@ export const CodeView = memo(
           swatches: settings.colorDecorators
             ? colorSwatches(document.lines[line])
             : [],
+          whitespace: settings.renderWhitespace,
           underlines: problems.map((problem) => ({
             start: problem.line === line ? problem.start : 0,
             end:
@@ -741,6 +746,29 @@ export const CodeView = memo(
                     column: document.lines[position.line].length,
                   },
             );
+            workbench.changed();
+            return;
+          }
+          if (event.clicks === 3) {
+            document.select(
+              { line: position.line, column: 0 },
+              position.line + 1 < document.lines.length
+                ? { line: position.line + 1, column: 0 }
+                : {
+                    line: position.line,
+                    column: document.lines[position.line].length,
+                  },
+            );
+            workbench.changed();
+            return;
+          }
+          if (event.alt) {
+            document.extras.push({
+              anchor: document.anchor ?? document.cursor,
+              cursor: document.cursor,
+            });
+            document.cursor = position;
+            document.anchor = null;
             workbench.changed();
             return;
           }

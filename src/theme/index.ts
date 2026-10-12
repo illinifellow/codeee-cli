@@ -79,6 +79,8 @@ export interface GlyphTokens {
   replaceAll: string;
   error: string;
   update: string;
+  space: string;
+  tab: string;
   guide: string;
   dropdown: string;
   /** The settings tab's icon. */

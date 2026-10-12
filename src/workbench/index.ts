@@ -1045,6 +1045,22 @@ export class Workbench {
 
   /** Asks, then moves an entry to the Trash; its tabs close. */
   deleteInExplorer(path: string) {
+    if (!this.config.settings.confirmDelete) {
+      try {
+        deleteEntry(path);
+      } catch (error) {
+        return this.say(`Failed to delete: ${(error as Error).message}`, true);
+      }
+      for (let index = this.tabs.length - 1; index >= 0; index--) {
+        const tabPath = this.tabs[index].path;
+        if (tabPath && (tabPath === path || tabPath.startsWith(`${path}/`)))
+          this.discard(index);
+      }
+      this.tree.refresh();
+      this.files = null;
+      this.clampExplorer();
+      return this.changed();
+    }
     const folder = this.explorerRows().find((row) => row.path === path)?.folder;
     this.ask({
       title: `Are you sure you want to delete '${basename(path)}'${folder ? " and its contents" : ""}?`,

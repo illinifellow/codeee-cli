@@ -54,6 +54,8 @@ export type KeyBindings = Record<
   | "comment"
   | "format"
   | "goToSymbol"
+  | "foldAll"
+  | "unfoldAll"
   | "wordWrap"
   | "addNextOccurrence"
   | "toggleFold"
@@ -123,6 +125,14 @@ export interface EditorSettings {
   minimap: boolean;
   /** Wraps long lines at the editor's width, as VS Code's `editor.wordWrap`. */
   wordWrap: boolean;
+  /** `none`, `selection` or `all`, as VS Code's `editor.renderWhitespace`. */
+  renderWhitespace: string;
+  /** `always` or `mouseover` (the cursor line), as `editor.showFoldingControls`. */
+  showFoldingControls: string;
+  /** Tabs that do not fit wrap onto more rows, as `workbench.editor.wrapTabs`. */
+  wrapTabs: boolean;
+  /** Asks before deleting from the explorer, as `explorer.confirmDelete`. */
+  confirmDelete: boolean;
   /** Pins the lines that open the blocks around the top of the editor, as VS Code's sticky scroll. */
   stickyScroll: boolean;
   /** Lints JavaScript and TypeScript with the project's ESLint and shows the problems at line ends, as Error Lens. */
@@ -195,6 +205,8 @@ const FORMATTING = {
 
 /** Allowed values of the settings that take one of a few words. */
 const CHOICES: Record<string, readonly string[]> = {
+  "settings.renderWhitespace": ["none", "selection", "all"],
+  "settings.showFoldingControls": ["always", "mouseover"],
   "settings.autoSave": ["off", "afterDelay", "onFocusChange"],
   "settings.iconTheme": ["vscode", "none"],
 };

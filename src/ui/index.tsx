@@ -150,7 +150,11 @@ export const App = ({
   const mainWidth = width - (showExplorer ? sideWidth + 1 : 0);
   const bodyHeight = Math.max(1, height - 2);
   const findRows = find && tab?.document ? (find.replacing ? 2 : 1) : 0;
-  const editorRows = Math.max(1, bodyHeight - 2 - findRows);
+  const tabLines = Math.max(
+    1,
+    tabRows(workbench, mainWidth, theme.glyphs).length,
+  );
+  const editorRows = Math.max(1, bodyHeight - 1 - tabLines - findRows);
   workbench.view = { rows: editorRows, columns: mainWidth };
   workbench.theme = theme;
 
@@ -521,6 +525,46 @@ const Explorer = ({
 };
 
 /** The tabs, as VS Code draws them: icon, name, a dot when unsaved or × to close. */
+/**
+ * Lays tabs out in rows: one scrolled row, or as many rows as they need when `wrapTabs` is on.
+ * @returns rows of tab indexes
+ */
+export const tabRows = (
+  workbench: Workbench,
+  width: number,
+  glyphs: { settings: string; dirty: string; close: string },
+) => {
+  const widths = workbench.tabs.map((tab) =>
+    widthOf(
+      ` ${tab.kind === "settings" ? glyphs.settings : "◆"} ${tab.title} ${glyphs.close} `,
+    ),
+  );
+  if (!workbench.config.settings.wrapTabs) {
+    let start = 0;
+    const end = widths
+      .slice(0, workbench.active + 1)
+      .reduce((total, cells) => total + cells, 0);
+    while (
+      start < workbench.active &&
+      end - widths.slice(0, start).reduce((total, cells) => total + cells, 0) >
+        width
+    )
+      start++;
+    return [widths.map((_cells, index) => index).slice(start)];
+  }
+  const rows: number[][] = [[]];
+  let used = 0;
+  widths.forEach((cells, index) => {
+    if (used + cells > width && rows.at(-1)!.length) {
+      rows.push([]);
+      used = 0;
+    }
+    rows.at(-1)!.push(index);
+    used += cells;
+  });
+  return rows;
+};
+
 const TabStrip = ({
   workbench,
   width,
@@ -530,63 +574,57 @@ const TabStrip = ({
   version: number;
 }) => {
   const { colors: palette, glyphs } = useTheme();
-  const tabs = workbench.tabs.map((tab, index) => {
-    const icon =
-      tab.kind === "settings"
-        ? { glyph: glyphs.settings, color: palette.icon }
-        : workbench.icons.file(tab.title, tab.language);
-    const label = ` ${icon.glyph} ${tab.title} ${tab.document?.dirty ? glyphs.dirty : glyphs.close} `;
-    return { tab, index, icon, label, width: widthOf(label) };
-  });
-  let start = 0;
-  const activeEnd = tabs
-    .slice(0, workbench.active + 1)
-    .reduce((total, entry) => total + entry.width, 0);
-  while (
-    start < workbench.active &&
-    activeEnd -
-      tabs.slice(0, start).reduce((total, entry) => total + entry.width, 0) >
-      width
-  )
-    start++;
   return (
-    <Box height={1} width={width} overflow="hidden">
-      {tabs.slice(start).map(({ tab, index, icon }) => {
-        const active = index === workbench.active;
-        const color = active ? palette.text : palette.textMuted;
-        return (
-          <Clickable
-            key={tab.id}
-            flexShrink={0}
-            onClick={() => workbench.activate(index)}
-          >
-            <Text
-              backgroundColor={active ? palette.lineHighlight : undefined}
-              underline={false}
-            >
-              <Text color={active ? palette.accent : palette.border}>
-                {active ? "▎" : " "}
-              </Text>
-              <Text color={icon.color ?? palette.icon}>{icon.glyph}</Text>
-              <Text
-                color={tab.document?.dirty ? palette.modified : color}
-                italic={false}
+    <Box flexDirection="column" width={width}>
+      {tabRows(workbench, width, glyphs).map((row, rowIndex) => (
+        <Box key={rowIndex} height={1} width={width} overflow="hidden">
+          {row.map((index) => {
+            const tab = workbench.tabs[index];
+            const icon =
+              tab.kind === "settings"
+                ? { glyph: glyphs.settings, color: palette.icon }
+                : workbench.icons.file(tab.title, tab.language);
+            const active = index === workbench.active;
+            const dirty = tab.document?.dirty;
+            const color = active ? palette.text : palette.textMuted;
+            const ground = active ? palette.lineHighlight : undefined;
+            return (
+              <Clickable
+                key={tab.id}
+                flexShrink={0}
+                onClick={() => workbench.activate(index)}
               >
-                {" "}
-                {tab.title}{" "}
-              </Text>
-            </Text>
-            <Clickable onClick={() => workbench.close(index)}>
-              <Text
-                backgroundColor={active ? palette.lineHighlight : undefined}
-                color={tab.document?.dirty ? palette.modified : color}
-              >
-                {tab.document?.dirty ? glyphs.dirty : glyphs.close}{" "}
-              </Text>
-            </Clickable>
-          </Clickable>
-        );
-      })}
+                <Text backgroundColor={ground}>
+                  <Text
+                    color={
+                      dirty
+                        ? palette.modified
+                        : active
+                          ? palette.accent
+                          : palette.border
+                    }
+                  >
+                    {active || dirty ? "▎" : " "}
+                  </Text>
+                  <Text color={icon.color ?? palette.icon}>{icon.glyph}</Text>
+                  <Text color={dirty ? palette.modified : color}>
+                    {" "}
+                    {tab.title}{" "}
+                  </Text>
+                </Text>
+                <Clickable onClick={() => workbench.close(index)}>
+                  <Text
+                    backgroundColor={ground}
+                    color={dirty ? palette.modified : color}
+                  >
+                    {dirty ? glyphs.dirty : glyphs.close}{" "}
+                  </Text>
+                </Clickable>
+              </Clickable>
+            );
+          })}
+        </Box>
+      ))}
     </Box>
   );
 };

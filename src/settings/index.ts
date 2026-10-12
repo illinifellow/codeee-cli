@@ -127,6 +127,8 @@ const KEYS: [string, string, string, string][] = [
     "Toggle Word Wrap",
     "Wrap long lines at the editor's width, or scroll them sideways.",
   ],
+  ["foldAll", "View", "Fold All", "Fold every block of the file."],
+  ["unfoldAll", "View", "Unfold All", "Unfold every block of the file."],
   [
     "reopenClosed",
     "View",
@@ -230,6 +232,22 @@ export const SETTINGS: SettingSpec[] = [
         { value: "none", description: "No file icons." },
       ],
     },
+  ),
+  setting(
+    "settings.wrapTabs",
+    "Workbench",
+    "Appearance",
+    "Wrap Tabs",
+    "Controls whether tabs should be wrapped over multiple lines when exceeding available space.",
+    "boolean",
+  ),
+  setting(
+    "settings.confirmDelete",
+    "Workbench",
+    "Explorer",
+    "Confirm Delete",
+    "Controls whether the Explorer should ask for confirmation when deleting a file via the trash.",
+    "boolean",
   ),
   setting(
     "settings.explorer",
@@ -443,6 +461,42 @@ export const SETTINGS: SettingSpec[] = [
     "Wraps lines at the editor's width instead of scrolling them sideways.",
     "boolean",
     { common: true },
+  ),
+  setting(
+    "settings.renderWhitespace",
+    "Text Editor",
+    "Cursor",
+    "Render Whitespace",
+    "Controls how the editor should render whitespace characters.",
+    "enum",
+    {
+      common: true,
+      choices: [
+        { value: "none", description: "Whitespace is not drawn." },
+        {
+          value: "selection",
+          description: "Whitespace is drawn inside selections only.",
+        },
+        { value: "all", description: "Every space and tab is drawn." },
+      ],
+    },
+  ),
+  setting(
+    "settings.showFoldingControls",
+    "Text Editor",
+    "Cursor",
+    "Show Folding Controls",
+    "Controls when the folding controls on the gutter are shown.",
+    "enum",
+    {
+      choices: [
+        { value: "always", description: "Always show the folding controls." },
+        {
+          value: "mouseover",
+          description: "Show the folding control of the cursor line only.",
+        },
+      ],
+    },
   ),
   setting(
     "settings.wheelLines",
