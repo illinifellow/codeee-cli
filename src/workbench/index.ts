@@ -108,6 +108,12 @@ export interface Tab {
   notice: string | null;
   /** Opened by a single click in the explorer: the next such click replaces it; an edit or a double click keeps it. */
   preview?: boolean;
+  /** The tab stops of the snippet being filled in; Tab goes to the next one, as in VS Code. */
+  snippet?: {
+    stops: { line: number; column: number; length: number }[];
+    index: number;
+    lengths: Map<number, number>;
+  };
   /** A format before saving is running. */
   formatting?: boolean;
   /** The line and first cell each editor row showed at the last draw, for clicks under word wrap. */
@@ -2016,15 +2022,67 @@ export class Workbench {
     });
     const start = { line, column: column - word.length };
     document.replace(start, document.cursor, expanded.text, "edit");
-    const before = expanded.text.slice(0, expanded.cursor).split("\n");
-    const at = {
-      line: line + before.length - 1,
-      column: (before.length === 1 ? start.column : 0) + before.at(-1)!.length,
+    const toPosition = (offset: number) => {
+      const head = expanded.text.slice(0, offset).split("\n");
+      return {
+        line: line + head.length - 1,
+        column: (head.length === 1 ? start.column : 0) + head.at(-1)!.length,
+      };
     };
+    const at = toPosition(expanded.cursor);
     document.select(at, {
       line: at.line,
       column: at.column + expanded.selected,
     });
+    const stops = expanded.placeholders.map((stop) => ({
+      ...toPosition(stop.offset),
+      length: stop.length,
+    }));
+    tab.snippet =
+      stops.length > 1
+        ? {
+            stops,
+            index: 0,
+            lengths: new Map(
+              stops.map((stop) => [
+                stop.line,
+                document.lines[stop.line].length,
+              ]),
+            ),
+          }
+        : undefined;
+    return true;
+  }
+
+  /**
+   * Moves to the next tab stop of the snippet being filled in, selecting its placeholder; the stops after the edited
+   * one move with the text typed on their line.
+   * @returns whether there was one to go to
+   */
+  private nextSnippetStop() {
+    const tab = this.tab;
+    const document = tab?.document;
+    const snippet = tab?.snippet;
+    if (!tab || !document || !snippet) return false;
+    const current = snippet.stops[snippet.index];
+    const delta =
+      document.lines[current.line].length -
+      (snippet.lengths.get(current.line) ?? 0);
+    for (const stop of snippet.stops.slice(snippet.index + 1))
+      if (stop.line === current.line && stop.column >= current.column)
+        stop.column += delta;
+    snippet.lengths.set(current.line, document.lines[current.line].length);
+    snippet.index++;
+    const next = snippet.stops[snippet.index];
+    if (!next || next.line >= document.lines.length) {
+      tab.snippet = undefined;
+      return false;
+    }
+    document.select(next, {
+      line: next.line,
+      column: next.column + next.length,
+    });
+    if (snippet.index === snippet.stops.length - 1) tab.snippet = undefined;
     return true;
   }
 
@@ -2259,7 +2317,8 @@ export class Workbench {
         break;
       case "tab":
         if (key.shift) document.outdent();
-        else if (!this.expandSnippet()) document.indent();
+        else if (!this.nextSnippetStop() && !this.expandSnippet())
+          document.indent();
         break;
       case "escape":
         if (this.find) {
