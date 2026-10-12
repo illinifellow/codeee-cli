@@ -71,7 +71,7 @@ import {
 } from "@/git";
 import { Icons } from "@/icons";
 import { bindingOf, type KeyEvent } from "@/keys";
-import { commentOf, languageOf } from "@/languages";
+import { allLanguages, commentOf, languageOf } from "@/languages";
 import {
   parseValue,
   pageRows,
@@ -293,6 +293,8 @@ export class Workbench {
     error: null,
   };
   private searchAbort: AbortController | null = null;
+  /** Files of closed tabs, newest last, for Reopen Closed Editor. */
+  private closed: string[] = [];
   private searchTimer: ReturnType<typeof setTimeout> | null = null;
   update: string | null = null;
   /** The blame shown at the end of the cursor line, for one file, line and text version. */
@@ -639,6 +641,7 @@ export class Workbench {
 
   private discard(index: number) {
     const [tab] = this.tabs.splice(index, 1);
+    if (tab.path) this.closed.push(tab.path);
     tab.highlight?.dispose();
     this.remember(tab);
     if (this.active >= index) this.active = Math.max(0, this.active - 1);
@@ -1358,6 +1361,119 @@ export class Workbench {
     }, this.config.limits.lintDelayMs);
   }
 
+  /** Renames the word at the cursor everywhere in the file, as F2 does for a symbol, matching whole words and case. */
+  renameSymbol() {
+    const document = this.tab?.document;
+    const word = document?.wordAt(document.cursor);
+    if (!document || !word) return this.say("The element can't be renamed.");
+    const name = document.lines[word[0].line].slice(
+      word[0].column,
+      word[1].column,
+    );
+    this.ask({
+      title: `Rename '${name}'`,
+      message: "Every whole-word occurrence in this file is renamed.",
+      input: field(name, true),
+      buttons: [
+        {
+          label: "Rename",
+          primary: true,
+          run: (value) => {
+            const next = value.trim();
+            if (!/^[\p{L}_$][\p{L}\p{N}_$]*$/u.test(next))
+              return `'${next}' is not a valid name.`;
+            const options = {
+              caseSensitive: true,
+              regex: false,
+              wholeWord: true,
+            };
+            const count = document.replaceMatches(
+              document.find(name, options),
+              next,
+            );
+            this.say(
+              `Renamed ${count} occurrence${count === 1 ? "" : "s"} of '${name}' to '${next}'`,
+            );
+            this.afterEdit();
+          },
+        },
+        { label: "Cancel", run: () => undefined },
+      ],
+    });
+  }
+
+  /** Lets the user pick the active file's language mode, as the status bar's language item does. */
+  pickLanguage() {
+    const tab = this.tab;
+    if (!tab?.document) return;
+    this.palette = {
+      field: field(),
+      cursor: 0,
+      placeholder: "Select Language Mode",
+      items: [],
+    };
+    this.paletteSource = (query) =>
+      allLanguages()
+        .flatMap((language) => {
+          const match = fuzzyMatch(language.name, query);
+          return match
+            ? [
+                {
+                  label: language.name,
+                  detail: language.id,
+                  positions: match.positions,
+                  score: match.score,
+                  run: () => {
+                    tab.language = language.id;
+                    tab.highlight?.dispose();
+                    tab.highlight = new DocumentHighlight(
+                      tab.document!,
+                      language.id,
+                      this.highlighter,
+                      this.config.limits.highlightChunkLines,
+                      this.config.limits.highlightMaxLines,
+                      () => this.changed(),
+                    );
+                  },
+                },
+              ]
+            : [];
+        })
+        .sort((a, b) => (query ? b.score - a.score : 0));
+    this.filterPalette();
+    this.changed();
+  }
+
+  /** Lets the user pick tabs or spaces and the indent size of the active file. */
+  pickIndentation() {
+    const document = this.tab?.document;
+    if (!document) return;
+    this.palette = {
+      field: field(),
+      cursor: 0,
+      placeholder: "Select Indentation",
+      items: [],
+    };
+    this.paletteSource = () =>
+      [
+        ...[2, 4, 8].map((size) => ({ useTabs: false, size })),
+        ...[2, 4, 8].map((size) => ({ useTabs: true, size })),
+      ].map((indentation) => ({
+        label: indentation.useTabs
+          ? `Indent Using Tabs, Tab Size ${indentation.size}`
+          : `Indent Using Spaces, ${indentation.size}`,
+        run: () => void (document.indentation = indentation),
+      }));
+    this.filterPalette();
+    this.changed();
+  }
+
+  /** Opens the most recently closed tab again. */
+  reopenClosed() {
+    const path = this.closed.pop();
+    if (path) this.open(path);
+  }
+
   /** Moves the cursor to the next or previous ESLint problem, wrapping around, and shows its message. */
   stepProblem(step: 1 | -1) {
     const tab = this.tab;
@@ -1612,6 +1728,8 @@ export class Workbench {
       case "\\":
         if (key.ctrl) document.jumpToBracket();
         break;
+      case "f2":
+        return this.renameSymbol();
       default:
         return;
     }
@@ -1811,6 +1929,7 @@ export class Workbench {
    * @param prefix `""` for files, `:` for a line, `>` for commands
    */
   openPalette(prefix = "") {
+    this.paletteSource = null;
     this.palette = {
       field: field(prefix),
       items: [],
@@ -1826,6 +1945,10 @@ export class Workbench {
     const palette = this.palette!;
     const value = palette.field.value;
     palette.cursor = 0;
+    if (this.paletteSource) {
+      palette.items = this.paletteSource(value.trim());
+      return;
+    }
     if (value.startsWith("@")) {
       const tab = this.tab;
       const document = tab?.document;
@@ -1961,18 +2084,24 @@ export class Workbench {
     }));
   }
 
+  /** A list Quick Open shows instead of files, for language and indentation pickers; cleared when it closes. */
+  private paletteSource: ((query: string) => PaletteItem[]) | null = null;
+
   /** Runs a Quick Open entry. */
   choosePalette(index: number) {
     const item = this.palette?.items[index];
     this.palette = null;
+    this.paletteSource = null;
     item?.run();
     this.changed();
   }
 
   private paletteKey(key: KeyEvent) {
     const palette = this.palette!;
-    if (key.name === "escape") this.palette = null;
-    else if (key.name === "enter") this.choosePalette(palette.cursor);
+    if (key.name === "escape") {
+      this.palette = null;
+      this.paletteSource = null;
+    } else if (key.name === "enter") this.choosePalette(palette.cursor);
     else if (key.name === "up")
       palette.cursor = Math.max(0, palette.cursor - 1);
     else if (key.name === "down")
@@ -2583,6 +2712,26 @@ export class Workbench {
         action: "markdownPreview",
         label: "Markdown: Open Preview to the Side",
         run: () => this.openPreview(),
+      },
+      {
+        action: "reopenClosed",
+        label: "View: Reopen Closed Editor",
+        run: () => this.reopenClosed(),
+      },
+      {
+        action: "rename",
+        label: "Rename Symbol",
+        run: () => this.renameSymbol(),
+      },
+      {
+        action: "languageMode",
+        label: "Change Language Mode",
+        run: () => this.pickLanguage(),
+      },
+      {
+        action: "indentation",
+        label: "Change Indentation",
+        run: () => this.pickIndentation(),
       },
       {
         action: "goToSymbol",

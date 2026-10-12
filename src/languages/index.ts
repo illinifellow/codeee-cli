@@ -468,3 +468,9 @@ export const commentOf = (
   const block = BLOCK_COMMENTS[language];
   return block ? { block } : null;
 };
+
+/** @returns every language shiki can highlight, by name, for Change Language Mode */
+export const allLanguages = () =>
+  bundledLanguagesInfo
+    .map((language) => ({ id: language.id, name: language.name }))
+    .sort((a, b) => a.name.localeCompare(b.name));

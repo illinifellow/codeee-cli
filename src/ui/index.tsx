@@ -787,11 +787,11 @@ const StatusBar = ({
           document.indentation.useTabs
             ? `Tab Size: ${document.indentation.size}`
             : `Spaces: ${document.indentation.size}`,
-          undefined,
+          () => workbench.pickIndentation(),
         ],
         ["UTF-8", undefined],
         [document.eol === "\n" ? "LF" : "CRLF", undefined],
-        [languageName(tab!.language), undefined],
+        [languageName(tab!.language), () => workbench.pickLanguage()],
         ...(tab?.diagnostics?.length
           ? ([
               [

@@ -61,30 +61,30 @@ codeee src/app.ts   # opens the file's folder with the file in a tab
 
 ## Keyboard
 
-| Key                     | Action                                                      |
-| ----------------------- | ----------------------------------------------------------- |
-| `^S` `^N` `^W` `^Q`     | save, new file, close tab, quit (asks about unsaved files)  |
-| `^P`                    | Quick Open: files; `:` line; `>` commands                   |
-| `^G`                    | go to line                                                  |
-| `^F` `^R`               | find, replace in the file                                   |
-| `F3` `⇧F3`              | next, previous match; the word at the cursor with no search |
-| `^T` `⌥^T`              | search, replace across the folder                           |
-| `⌥C` `⌥W` `⌥R`          | match case, whole word, regular expression                  |
-| `^Z` `^Y`               | undo, redo                                                  |
-| `^C` `^X` `^V`          | copy, cut, paste (the whole line when nothing is selected)  |
-| `^A` `^L`               | select all, expand line selection                           |
-| `^/` `^K` `^D`          | toggle comment, delete line, copy line down                 |
-| `⌥↑` `⌥↓`               | move line                                                   |
-| `^\`                    | jump to the matching bracket                                |
-| `⌥⇧F` (`⌥⌘L` in iTerm2) | Format Document                                             |
-| `^]`                    | Go to Symbol                                                |
-| `F8` `⇧F8`              | next, previous problem                                      |
-| `⌥V`                    | Markdown Preview                                            |
-| `Tab`                   | expand a snippet prefix, else indent                        |
-| `^B` `^E`               | toggle the explorer, focus it                               |
-| `^O`                    | settings                                                    |
-| `^PgUp` `^PgDn`         | previous, next tab                                          |
-| `^←` `^→` `⌥←` `⌥→`     | word left, right; with `⇧` select                           |
+| Key                 | Action                                                      |
+| ------------------- | ----------------------------------------------------------- |
+| `^S` `^N` `^W` `^Q` | save, new file, close tab, quit (asks about unsaved files)  |
+| `^P`                | Quick Open: files; `:` line; `>` commands                   |
+| `^G`                | go to line                                                  |
+| `^F` `^R`           | find, replace in the file                                   |
+| `F3` `⇧F3`          | next, previous match; the word at the cursor with no search |
+| `^T` `⌥^T`          | search, replace across the folder                           |
+| `⌥C` `⌥W` `⌥R`      | match case, whole word, regular expression                  |
+| `^Z` `^Y`           | undo, redo                                                  |
+| `^C` `^X` `^V`      | copy, cut, paste (the whole line when nothing is selected)  |
+| `^A` `^L`           | select all, expand line selection                           |
+| `^/` `^K` `^D`      | toggle comment, delete line, copy line down                 |
+| `⌥↑` `⌥↓`           | move line                                                   |
+| `^\`                | jump to the matching bracket                                |
+| `⌥⇧F`               | Format Document                                             |
+| `^]`                | Go to Symbol                                                |
+| `F8` `⇧F8`          | next, previous problem                                      |
+| `⌥V`                | Markdown Preview                                            |
+| `Tab`               | expand a snippet prefix, else indent                        |
+| `^B` `^E`           | toggle the explorer, focus it                               |
+| `^O`                | settings                                                    |
+| `^PgUp` `^PgDn`     | previous, next tab                                          |
+| `^←` `^→` `⌥←` `⌥→` | word left, right; with `⇧` select                           |
 
 Every key is set in the settings. Terminals do not pass Cmd to programs; map a Cmd shortcut to one of these in the terminal's key settings to keep your VS Code habits.
 

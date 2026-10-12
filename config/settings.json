@@ -99,7 +99,8 @@
     "goToSymbol": "ctrl+]",
     "nextProblem": "f8",
     "previousProblem": "shift+f8",
-    "markdownPreview": "alt+v"
+    "markdownPreview": "alt+v",
+    "reopenClosed": "alt+t"
   },
   "themes": {
     "golden-brown": {
