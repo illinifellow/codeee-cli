@@ -242,3 +242,13 @@ describe("expand selection and vertical cursors", () => {
     expect(document.lines).toEqual(["abXc", "abXc"]);
   });
 });
+
+describe("preserve case", () => {
+  it("gives replacements the case of what they replace", async () => {
+    const { preserveCase } = await import("@/buffer");
+    expect(preserveCase("FOO", "bar")).toBe("BAR");
+    expect(preserveCase("foo", "Bar")).toBe("bar");
+    expect(preserveCase("Foo", "bar")).toBe("Bar");
+    expect(preserveCase("fOo", "bar")).toBe("bar");
+  });
+});

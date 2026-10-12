@@ -3239,7 +3239,12 @@ export class Workbench {
     const document = this.tab?.document;
     if (!find || !document || !find.matches.length) return;
     const match = find.matches[find.current];
-    document.replaceMatches([match], find.replacement.value, this.pattern());
+    document.replaceMatches(
+      [match],
+      find.replacement.value,
+      this.pattern(),
+      find.options.preserveCase,
+    );
     this.updateMatches();
     const next = find.matches.findIndex(
       (other) =>
@@ -3260,6 +3265,7 @@ export class Workbench {
       find.matches,
       find.replacement.value,
       this.pattern(),
+      find.options.preserveCase,
     );
     this.say(
       `Replaced ${count} occurrence${count === 1 ? "" : "s"} across 1 file with '${find.replacement.value}'`,
@@ -3944,11 +3950,17 @@ export class Workbench {
           matches,
           view.replacement.value,
           pattern ?? undefined,
+          view.options.preserveCase,
         );
         continue;
       }
       try {
-        count += await replaceInFile(result, view.replacement.value, pattern);
+        count += await replaceInFile(
+          result,
+          view.replacement.value,
+          pattern,
+          view.options.preserveCase,
+        );
       } catch (error) {
         this.say(
           `Failed to replace in ${basename(result.path)}: ${(error as Error).message}`,

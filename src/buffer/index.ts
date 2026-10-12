@@ -39,7 +39,29 @@ export interface FindOptions {
   caseSensitive: boolean;
   regex: boolean;
   wholeWord: boolean;
+  /** Replacements take the case of the text they replace, as VS Code's Preserve Case. */
+  preserveCase?: boolean;
 }
+
+/**
+ * Gives a replacement the case of the text it replaces: all capitals, all small letters, or a capital first letter.
+ * @param found the replaced text
+ * @param value the replacement
+ * @returns the replacement in the found text's case; unchanged when the found text mixes cases otherwise
+ */
+export const preserveCase = (found: string, value: string) => {
+  if (found && found === found.toUpperCase() && found !== found.toLowerCase())
+    return value.toUpperCase();
+  if (found && found === found.toLowerCase() && found !== found.toUpperCase())
+    return value.toLowerCase();
+  if (
+    found[0] &&
+    found[0] === found[0].toUpperCase() &&
+    found.slice(1) === found.slice(1).toLowerCase()
+  )
+    return value[0].toUpperCase() + value.slice(1).toLowerCase();
+  return value;
+};
 
 /** Editing preferences that apply to every document. */
 export interface EditOptions {
@@ -1090,9 +1112,15 @@ export class Document {
    * @param matches what `find` returned for the current text
    * @param replacement the new text; with `pattern`, `$1` and `$&` refer to the match's groups
    * @param pattern the expression the matches came from, for group references
+   * @param keepCase give each replacement the case of what it replaces
    * @returns how many were replaced
    */
-  replaceMatches(matches: Match[], replacement: string, pattern?: RegExp) {
+  replaceMatches(
+    matches: Match[],
+    replacement: string,
+    pattern?: RegExp,
+    keepCase = false,
+  ) {
     if (!matches.length) return 0;
     const first = matches[0].line;
     const last = matches.at(-1)!.line;
@@ -1106,8 +1134,9 @@ export class Document {
             replacement,
           )
         : replacement;
+      const final = keepCase ? preserveCase(found, value) : value;
       after[match.line - first] =
-        text.slice(0, match.start) + value + text.slice(match.end);
+        text.slice(0, match.start) + final + text.slice(match.end);
     }
     const joined = after.join("\n").split("\n");
     const firstMatch = matches[0];

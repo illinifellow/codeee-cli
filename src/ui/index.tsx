@@ -1084,6 +1084,9 @@ const FindWidget = ({
               placeholder="Replace"
             />
           </Clickable>
+          {option("AB", Boolean(find.options.preserveCase), () =>
+            workbench.toggleFindOption("preserveCase"),
+          )}
           {button(glyphs.replace, () => workbench.replaceOne())}
           {button(glyphs.replaceAll, () => workbench.replaceAll())}
           <Text>{" ".repeat(19)}</Text>
