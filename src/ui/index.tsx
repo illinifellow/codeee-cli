@@ -586,8 +586,8 @@ const Explorer = ({
           }}
           onHover={() => {
             if (workbench.hoverPath === row.path) return;
-            workbench.hoverPath = row.path;
             workbench.hover(null);
+            workbench.hoverPath = row.path;
             workbench.changed();
           }}
           onPress={() => (move) => {
