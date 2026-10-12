@@ -163,6 +163,12 @@ const KEYS: [string, string, string, string][] = [
     "Replace in Files",
     "Show the Search view with replace, to replace across every file in the folder.",
   ],
+  [
+    "addNextOccurrence",
+    "Selection",
+    "Add Selection To Next Find Match",
+    "Select the word at the cursor; again, add a cursor at its next occurrence. Typing then edits them all.",
+  ],
   ["selectAll", "Selection", "Select All", "Select the whole file."],
   [
     "selectLine",

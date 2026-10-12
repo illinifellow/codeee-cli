@@ -1928,6 +1928,16 @@ export class Workbench {
     const select = key.shift;
     const word = key.ctrl || key.alt;
     const page = Math.max(1, this.view.rows - 1);
+    if (document.extras.length) {
+      if (key.name === "text" || key.name === "paste") {
+        document.editAll("type", key.text!.replace(/\n/g, " "));
+        return this.afterEdit();
+      }
+      if (key.name === "backspace" || key.name === "delete") {
+        document.editAll(key.name);
+        return this.afterEdit();
+      }
+    }
     switch (key.name) {
       case "left":
         document.left(select, word);
@@ -3018,6 +3028,14 @@ export class Workbench {
         action: "indentation",
         label: "Change Indentation",
         run: () => this.pickIndentation(),
+      },
+      {
+        action: "addNextOccurrence",
+        label: "Add Selection To Next Find Match",
+        run: () =>
+          this.withDocument((document) => {
+            if (!document.addNextOccurrence()) this.say("No more occurrences");
+          }),
       },
       {
         action: "goToSymbol",

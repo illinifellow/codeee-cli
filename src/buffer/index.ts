@@ -307,6 +307,7 @@ export class Document {
    * @param keepGoal keep the cell vertical moves aim for
    */
   setCursor(position: Position, select = false, keepGoal = false) {
+    this.extras = [];
     if (select) this.anchor ??= { ...this.cursor };
     else this.anchor = null;
     this.cursor = this.clamp(position);
@@ -1168,6 +1169,126 @@ export class Document {
       );
     }
     return depths[Math.min(line, depths.length - 1)];
+  }
+
+  /** Further cursors beside the main one, each with the start of its selection, as Add Next Occurrence makes them. */
+  extras: { anchor: Position; cursor: Position }[] = [];
+
+  /** @returns every selection, the main one included, as ordered ranges */
+  allRanges(): [Position, Position][] {
+    const ranges: [Position, Position][] = [this.range()];
+    for (const extra of this.extras)
+      ranges.push(
+        before(extra.cursor, extra.anchor)
+          ? [extra.cursor, extra.anchor]
+          : [extra.anchor, extra.cursor],
+      );
+    return ranges;
+  }
+
+  /**
+   * Selects the word at the cursor, or adds a cursor at the next occurrence of the selected text, as VS Code's Add
+   * Selection To Next Find Match; the search wraps around the file.
+   * @returns whether a selection was made or added
+   */
+  addNextOccurrence() {
+    if (!this.hasSelection) {
+      const word = this.wordAt(this.cursor);
+      if (!word) return false;
+      this.anchor = word[0];
+      this.cursor = word[1];
+      return true;
+    }
+    const text = this.selectedText();
+    if (text.includes("\n")) return false;
+    const taken = this.allRanges();
+    const last = taken.reduce((latest, range) =>
+      before(latest[1], range[1]) ? range : latest,
+    );
+    const all = this.find(text, {
+      caseSensitive: true,
+      regex: false,
+      wholeWord: false,
+    });
+    const free = all.filter(
+      (match) =>
+        !taken.some(
+          ([start]) =>
+            start.line === match.line && start.column === match.start,
+        ),
+    );
+    const next =
+      free.find(
+        (match) =>
+          match.line > last[1].line ||
+          (match.line === last[1].line && match.start >= last[1].column),
+      ) ?? free[0];
+    if (!next) return false;
+    this.extras.push({
+      anchor: this.anchor ?? this.cursor,
+      cursor: this.cursor,
+    });
+    this.anchor = { line: next.line, column: next.start };
+    this.cursor = { line: next.line, column: next.end };
+    this.sealed = true;
+    return true;
+  }
+
+  /**
+   * Edits at every cursor in one undo step: typing, Backspace or Delete, each within its line.
+   * @param action what to do at each cursor
+   * @param text what to type, for `type`
+   */
+  editAll(action: "type" | "backspace" | "delete", text = "") {
+    const ranges = this.allRanges().filter(
+      ([start, end]) => start.line === end.line,
+    );
+    if (!ranges.length) return;
+    const first = Math.min(...ranges.map(([start]) => start.line));
+    const last = Math.max(...ranges.map(([start]) => start.line));
+    const beforeLines = this.lines.slice(first, last + 1);
+    const work = [...beforeLines];
+    const order = ranges
+      .map((range, index) => ({ range, index }))
+      .sort(
+        (a, b) =>
+          b.range[0].line - a.range[0].line ||
+          b.range[0].column - a.range[0].column,
+      );
+    const carets: Position[] = [];
+    for (const { range, index } of order) {
+      const [start, end] = range;
+      const line = work[start.line - first];
+      let from = start.column;
+      let to = end.column;
+      if (from === to && action === "backspace") from = Math.max(0, from - 1);
+      if (from === to && action === "delete")
+        to = Math.min(line.length, to + 1);
+      const inserted = action === "type" ? text : "";
+      work[start.line - first] =
+        line.slice(0, from) + inserted + line.slice(to);
+      const delta = inserted.length - (to - from);
+      for (const caret of carets)
+        if (caret && caret.line === start.line && caret.column >= to)
+          caret.column += delta;
+      carets[index] = { line: start.line, column: from + inserted.length };
+    }
+    const selectionBefore = this.selection;
+    this.replaceLines(first, work.length, work);
+    this.cursor = carets[0];
+    this.anchor = null;
+    this.extras = carets
+      .slice(1)
+      .map((caret) => ({ anchor: { ...caret }, cursor: caret }));
+    this.goal = null;
+    this.record({
+      kind: "edit",
+      start: first,
+      before: beforeLines,
+      after: work,
+      selectionBefore,
+      selectionAfter: this.selection,
+    });
   }
 
   /**

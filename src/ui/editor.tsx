@@ -194,10 +194,11 @@ const codeRow = (
     left: number;
     tabSize: number;
     defaultColor: string;
-    selection: [Position, Position] | null;
+    selections: [Position, Position][];
     matches: { start: number; end: number; current: boolean }[];
     brackets: number[];
-    cursor: number | null;
+    /** Columns of the cursors on the line. */
+    cursors: number[];
     lineBackground?: string;
     /** Ranges ESLint reported on the line, drawn underlined. */
     underlines: { start: number; end: number }[];
@@ -220,8 +221,16 @@ const codeRow = (
     };
   },
 ): Piece[] => {
-  const { width, left, tabSize, selection, matches, brackets, cursor, colors } =
-    options;
+  const {
+    width,
+    left,
+    tabSize,
+    selections,
+    matches,
+    brackets,
+    cursors,
+    colors,
+  } = options;
   const pieces: Piece[] = [];
   const push = (piece: Piece) => {
     const last = pieces.at(-1);
@@ -237,9 +246,11 @@ const codeRow = (
     else pieces.push(piece);
   };
   const selected = (column: number) =>
-    selection !== null &&
-    compare(selection[0], { line, column }) <= 0 &&
-    compare({ line, column }, selection[1]) < 0;
+    selections.some(
+      (selection) =>
+        compare(selection[0], { line, column }) <= 0 &&
+        compare({ line, column }, selection[1]) < 0,
+    );
   let segmentIndex = 0;
   let segmentEnd = segments?.[0]?.text.length ?? 0;
   let used = 0;
@@ -257,7 +268,7 @@ const codeRow = (
       const match = matches.find(
         (entry) => column >= entry.start && column < entry.end,
       );
-      const atCursor = cursor === column;
+      const atCursor = cursors.includes(column);
       const swatch = options.swatches.find(
         (entry) => column >= entry.start && column < entry.end,
       );
@@ -321,18 +332,14 @@ const codeRow = (
       0,
     );
     if (endCell >= left) {
-      if (cursor === lineEnd) {
+      if (cursors.includes(lineEnd)) {
         push({
           text: " ",
           color: colors.cursorText,
           background: colors.cursor,
         });
         used++;
-      } else if (
-        selection &&
-        compare(selection[0], { line, column: lineEnd }) <= 0 &&
-        compare({ line, column: lineEnd }, selection[1]) < 0
-      ) {
+      } else if (selected(lineEnd)) {
         push({ text: " ", background: colors.selection });
         used++;
       }
@@ -414,6 +421,9 @@ export const CodeView = memo(
         )
       : null;
     const selection = document.hasSelection ? document.range() : null;
+    const ranges = document
+      .allRanges()
+      .filter(([start, end]) => compare(start, end) !== 0);
     const find = workbench.find;
     const bracket =
       focused || !selection ? document.matchingBracket(document.cursor) : null;
@@ -502,14 +512,18 @@ export const CodeView = memo(
           left: tab.scrollLeft,
           tabSize: document.indentation.size,
           defaultColor: palette.text,
-          selection,
+          selections: ranges,
           matches,
           brackets: bracket
             ? [bracket[0], bracket[1]]
                 .filter((position) => position.line === line)
                 .map((position) => position.column)
             : [],
-          cursor: focused && current ? document.cursor.column : null,
+          cursors: focused
+            ? [document.cursor, ...document.extras.map((extra) => extra.cursor)]
+                .filter((position) => position.line === line && !pinned)
+                .map((position) => position.column)
+            : [],
           lineBackground,
           bracketColors: settings.bracketPairColorization
             ? bracketColorsOf(document, line, palette.brackets)

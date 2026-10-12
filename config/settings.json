@@ -85,7 +85,7 @@
     "selectAll": "ctrl+a",
     "selectLine": "ctrl+l",
     "deleteLine": "ctrl+k",
-    "duplicateLine": "ctrl+d",
+    "duplicateLine": "alt+shift+down",
     "comment": "ctrl+/",
     "moveLineUp": "alt+up",
     "moveLineDown": "alt+down",
@@ -101,7 +101,8 @@
     "previousProblem": "shift+f8",
     "markdownPreview": "alt+v",
     "reopenClosed": "alt+t",
-    "toggleFold": "alt+k"
+    "toggleFold": "alt+k",
+    "addNextOccurrence": "ctrl+d"
   },
   "themes": {
     "golden-brown": {

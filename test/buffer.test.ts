@@ -184,3 +184,19 @@ describe("cells and indentation", () => {
     });
   });
 });
+
+describe("multiple cursors", () => {
+  it("adds the next occurrence and edits every one in one undo step", () => {
+    const document = open("let a = a + a;");
+    document.setCursor({ line: 0, column: 4 });
+    document.addNextOccurrence();
+    document.addNextOccurrence();
+    document.addNextOccurrence();
+    document.editAll("type", "bb");
+    expect(document.text()).toBe("let bb = bb + bb;");
+    document.editAll("backspace");
+    expect(document.text()).toBe("let b = b + b;");
+    document.undo();
+    expect(document.text()).toBe("let bb = bb + bb;");
+  });
+});
