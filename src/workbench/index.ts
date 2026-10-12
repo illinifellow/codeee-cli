@@ -134,6 +134,8 @@ export interface Tab {
     index: number;
     lengths: Map<number, number>;
   };
+  /** The file is gone from disk; the tab keeps its text, as VS Code's (deleted) tabs. */
+  deleted?: boolean;
   /** A format before saving is running. */
   formatting?: boolean;
   /** The line and first cell each editor row showed at the last draw, for clicks under word wrap. */
@@ -1067,6 +1069,7 @@ export class Workbench {
     try {
       tab.modified = writeText(tab.path, tab.document.text());
       tab.document.markSaved();
+      tab.deleted = false;
       removeBackup(tab.path);
       this.refreshGit();
       this.tree.refresh();
@@ -1193,6 +1196,7 @@ export class Workbench {
     for (const tab of this.allTabs()) {
       if (!tab.path || !tab.document || !paths.includes(tab.path)) continue;
       const modified = modifiedTime(tab.path);
+      tab.deleted = !modified;
       if (!modified || modified === tab.modified) continue;
       if (tab.document.dirty) {
         this.say(`${tab.title} changed on disk; saving overwrites it`, true);

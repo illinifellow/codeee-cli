@@ -908,9 +908,11 @@ const TabStrip = ({
                             : color
                     }
                     italic={tab.preview}
+                    strikethrough={tab.deleted}
                   >
                     {" "}
-                    {tab.title}{" "}
+                    {tab.title}
+                    {tab.deleted ? " (deleted)" : ""}{" "}
                   </Text>
                 </Text>
                 <Clickable
