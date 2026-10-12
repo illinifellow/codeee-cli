@@ -2,10 +2,10 @@
  * The main screen, after VS Code's workbench and in gittt's manner: a one-line
  * toolbar with the key of every action and messages at its right end, the
  * explorer, the tab strip, breadcrumbs, the find widget, the code or the
- * settings page, a status bar, and Quick Open, dialogs and context menus
+ * settings page, and Quick Open, dialogs and context menus
  * drawn over it. Every part answers the mouse.
  */
-import { basename, relative, sep } from "node:path";
+import { basename, dirname, relative, sep } from "node:path";
 import { Box, Text } from "ink";
 import {
   useEffect,
@@ -16,7 +16,7 @@ import {
 import { fieldView, type Field } from "@/field";
 import { useKeys } from "@/keys";
 import { GIT_LETTERS, isIgnored } from "@/git";
-import { languageName, languageOf } from "@/languages";
+import { languageOf } from "@/languages";
 import { Clickable } from "@/mouse/regions";
 import { fit, widthOf } from "@/text";
 import { availableUpdate, installUpdate } from "@/update";
@@ -148,7 +148,7 @@ export const App = ({
       )
     : 0;
   const mainWidth = width - (showExplorer ? sideWidth + 1 : 0);
-  const bodyHeight = Math.max(1, height - 3);
+  const bodyHeight = Math.max(1, height - 2);
   const findRows = find && tab?.document ? (find.replacing ? 2 : 1) : 0;
   const editorRows = Math.max(1, bodyHeight - 2 - findRows);
   workbench.view = { rows: editorRows, columns: mainWidth };
@@ -345,7 +345,6 @@ export const App = ({
           )}
         </Box>
       </Box>
-      <StatusBar workbench={workbench} width={width} />
       <Overlays workbench={workbench} width={width} height={height} />
     </Box>
   );
@@ -388,7 +387,8 @@ const Explorer = ({
       const icon = row.folder
         ? workbench.icons.folder(row.name, row.expanded)
         : workbench.icons.file(row.name, languageOf(row.path));
-      const selected = index === workbench.explorerCursor;
+      const selected =
+        index === workbench.explorerCursor || row.path === workbench.dropTarget;
       const background =
         selected && focused
           ? palette.selection
@@ -441,6 +441,17 @@ const Explorer = ({
           onClick={() => {
             workbench.focus = "explorer";
             workbench.openRow(index, false);
+          }}
+          onPress={() => (move) => {
+            const target = rows[index + move.localY];
+            workbench.dropTarget =
+              move.kind === "up" ? null : (target?.path ?? null);
+            if (move.kind === "up" && move.localY !== 0 && target)
+              workbench.moveEntry(
+                row.path,
+                target.folder ? target.path : dirname(target.path),
+              );
+            workbench.changed();
           }}
           onRightClick={(event) => {
             workbench.focus = "explorer";
@@ -773,62 +784,6 @@ const Welcome = ({
               )}
             </Text>
           </Text>
-        </Clickable>
-      ))}
-    </Box>
-  );
-};
-
-/** The status bar: cursor, indentation, encoding, line endings, language. */
-const StatusBar = ({
-  workbench,
-  width,
-}: {
-  workbench: Workbench;
-  width: number;
-}) => {
-  const { colors: palette } = useTheme();
-  const tab = workbench.tab;
-  const document = tab?.document;
-  const items: [string, (() => void) | undefined][] = document
-    ? [
-        [
-          document.hasSelection
-            ? `Ln ${document.cursor.line + 1}, Col ${document.cursor.column + 1} (${document.selectedText().length} selected)`
-            : `Ln ${document.cursor.line + 1}, Col ${document.cursor.column + 1}`,
-          () => workbench.openPalette(":"),
-        ],
-        [
-          document.indentation.useTabs
-            ? `Tab Size: ${document.indentation.size}`
-            : `Spaces: ${document.indentation.size}`,
-          () => workbench.pickIndentation(),
-        ],
-        ["UTF-8", undefined],
-        [document.eol === "\n" ? "LF" : "CRLF", undefined],
-        [languageName(tab!.language), () => workbench.pickLanguage()],
-        ...(tab?.diagnostics?.length
-          ? ([
-              [
-                `✖ ${tab.diagnostics.filter((problem) => problem.severity === "error").length} ⚠ ${tab.diagnostics.filter((problem) => problem.severity === "warning").length}`,
-                () => {
-                  const next =
-                    tab.diagnostics!.find(
-                      (problem) => problem.line > document.cursor.line,
-                    ) ?? tab.diagnostics![0];
-                  document.setCursor({ line: next.line, column: next.start });
-                  workbench.afterEdit();
-                },
-              ],
-            ] as [string, (() => void) | undefined][])
-          : []),
-      ]
-    : [];
-  return (
-    <Box height={1} width={width} justifyContent="flex-end" overflow="hidden">
-      {items.map(([label, run]) => (
-        <Clickable key={label} flexShrink={0} onClick={run}>
-          <Text color={palette.textMuted}>{label} </Text>
         </Clickable>
       ))}
     </Box>

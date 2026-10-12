@@ -13,7 +13,7 @@ import {
   relative,
   resolve,
 } from "node:path";
-import type { FSWatcher } from "node:fs";
+import { renameSync, type FSWatcher } from "node:fs";
 import {
   loadConfig,
   loadDefaults,
@@ -998,6 +998,45 @@ export class Workbench {
         { label: "Cancel", run: () => undefined },
       ],
     });
+  }
+
+  /** The explorer row a drag is over. */
+  dropTarget: string | null = null;
+
+  /**
+   * Moves a file or folder into another folder, as a drag in the explorer does; open tabs follow it.
+   * @param path what to move
+   * @param folder where to
+   */
+  moveEntry(path: string, folder: string) {
+    if (
+      dirname(path) === folder ||
+      folder === path ||
+      folder.startsWith(`${path}/`)
+    )
+      return;
+    const problem = nameProblem(folder, basename(path));
+    if (problem) return this.say(problem, true);
+    try {
+      renameSync(path, join(folder, basename(path)));
+    } catch (error) {
+      return this.say(
+        `Failed to move '${basename(path)}': ${(error as Error).message}`,
+        true,
+      );
+    }
+    const target = join(folder, basename(path));
+    for (const tab of this.tabs)
+      if (tab.path && (tab.path === path || tab.path.startsWith(`${path}/`)))
+        tab.path = target + tab.path.slice(path.length);
+    this.tree.expanded.add(folder);
+    this.tree.refresh();
+    this.files = null;
+    this.revealInExplorer(target);
+    this.saveSession();
+    this.say(
+      `Moved ${basename(path)} to ${relativeTo(this.root, folder) || basename(this.root)}`,
+    );
   }
 
   /** Asks, then moves an entry to the Trash; its tabs close. */
