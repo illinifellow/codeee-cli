@@ -637,7 +637,7 @@ export const CodeView = memo(
       const gutterText = !entry.first
         ? " ".repeat(gutter)
         : settings.lineNumbers
-          ? `${foldMark}${number.padStart(gutter - workbench.theme.spacing.gutterPadding - 1)}${" ".repeat(workbench.theme.spacing.gutterPadding)}`
+          ? ` ${number.padStart(gutter - workbench.theme.spacing.gutterPadding - 1)}${foldMark}${" ".repeat(workbench.theme.spacing.gutterPadding - 1)}`
           : " ";
       const matches = find
         ? find.matches.flatMap((match, index) =>
@@ -852,7 +852,10 @@ export const CodeView = memo(
         height={height}
         flexDirection="column"
         onPress={(event) => {
-          if (event.localX === 0 && event.localY >= sticky.length) {
+          if (
+            event.localX === gutter - workbench.theme.spacing.gutterPadding &&
+            event.localY >= sticky.length
+          ) {
             const target = visible[first + event.localY];
             if (
               target !== undefined &&

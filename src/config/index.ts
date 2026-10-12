@@ -54,6 +54,8 @@ export type KeyBindings = Record<
   | "comment"
   | "format"
   | "goToSymbol"
+  | "scm"
+  | "outline"
   | "addCursorAbove"
   | "addCursorBelow"
   | "expandSelection"

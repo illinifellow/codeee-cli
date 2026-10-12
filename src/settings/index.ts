@@ -174,6 +174,18 @@ const KEYS: [string, string, string, string][] = [
     "Undo the last Expand Selection step.",
   ],
   [
+    "scm",
+    "View",
+    "Show Source Control",
+    "Show the changed files, stage them and commit.",
+  ],
+  [
+    "outline",
+    "View",
+    "Show Outline",
+    "Show the symbols of the file in the side bar.",
+  ],
+  [
     "reopenClosed",
     "View",
     "Reopen Closed Editor",
