@@ -419,9 +419,26 @@ export const SettingsPage = ({
                   entry.sections.length &&
                   (active || !view.category)
                     ? entry.sections.map((section) => (
-                        <Text key={section} color={palette.textMuted}>
-                          {fit(`   ${section}`, tocWidth - 1)}
-                        </Text>
+                        <Clickable
+                          key={section}
+                          height={1}
+                          onClick={() => {
+                            const index = specs.findIndex(
+                              (spec) =>
+                                spec.category === entry.name &&
+                                spec.section === section,
+                            );
+                            if (index < 0) return;
+                            view.cursor = index;
+                            view.searching = false;
+                            workbench.focus = "settings";
+                            workbench.changed();
+                          }}
+                        >
+                          <Text color={palette.textMuted}>
+                            {fit(`   ${section}`, tocWidth - 1)}
+                          </Text>
+                        </Clickable>
                       ))
                     : null}
                 </Box>
