@@ -821,8 +821,26 @@ export const pageRows = (category: string | null, query: string): PageRow[] => {
         .toLowerCase()
         .includes(word),
     );
+  const titleScore = (spec: SettingSpec) =>
+    words.every((word) => spec.title.toLowerCase().includes(word))
+      ? 2
+      : words.every((word) =>
+            `${spec.section} ${spec.title}`.toLowerCase().includes(word),
+          )
+        ? 1
+        : 0;
+  const best = (name: string) =>
+    Math.max(
+      0,
+      ...SETTINGS.filter((spec) => spec.category === name && matches(spec)).map(
+        titleScore,
+      ),
+    );
+  const order = words.length
+    ? [...CATEGORIES].sort((a, b) => best(b.name) - best(a.name))
+    : CATEGORIES;
   const rows: PageRow[] = [];
-  for (const { name, sections } of CATEGORIES) {
+  for (const { name, sections } of order) {
     if (category && category !== name) continue;
     if (name === "Commonly Used") {
       if (words.length) continue;
@@ -838,8 +856,27 @@ export const pageRows = (category: string | null, query: string): PageRow[] => {
     );
     if (!inCategory.length) continue;
     rows.push({ kind: "heading", text: name, level: 1 });
-    for (const section of sections) {
-      const specs = inCategory.filter((spec) => spec.section === section);
+    const sectionOrder = words.length
+      ? [...sections].sort(
+          (a, b) =>
+            Math.max(
+              0,
+              ...inCategory
+                .filter((spec) => spec.section === b)
+                .map(titleScore),
+            ) -
+            Math.max(
+              0,
+              ...inCategory
+                .filter((spec) => spec.section === a)
+                .map(titleScore),
+            ),
+        )
+      : sections;
+    for (const section of sectionOrder) {
+      const specs = inCategory
+        .filter((spec) => spec.section === section)
+        .sort((a, b) => (words.length ? titleScore(b) - titleScore(a) : 0));
       if (!specs.length) continue;
       rows.push(
         { kind: "heading", text: section, level: 2 },

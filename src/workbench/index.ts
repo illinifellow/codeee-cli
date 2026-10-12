@@ -2245,6 +2245,23 @@ export class Workbench {
     this.changed();
   }
 
+  /**
+   * Changes the line endings the file is saved with; the file counts as changed, as in VS Code.
+   * @param eol `\n` or `\r\n`
+   */
+  setEol(eol: "\n" | "\r\n") {
+    this.withDocument((document) => {
+      if (document.eol === eol) return;
+      document.eol = eol;
+      document.replace(
+        { line: 0, column: 0 },
+        { line: 0, column: 0 },
+        "",
+        "edit",
+      );
+    });
+  }
+
   /** Opens the most recently closed tab again. */
   reopenClosed() {
     const path = this.closed.pop();
@@ -3264,7 +3281,9 @@ export class Workbench {
         view.editing = null;
         view.error = null;
       } else if (key.name === "enter") this.commitSetting();
-      else {
+      else if (view.editing.key.startsWith("keys.")) {
+        view.editing.field = field(optionChord(key) ?? bindingOf(key));
+      } else {
         const next = editField(view.editing.field, key);
         if (next) view.editing.field = next;
       }
@@ -4023,6 +4042,56 @@ export class Workbench {
         run: () => this.withDocument((document) => document.shrinkSelection()),
       },
       {
+        action: "eolLf",
+        label: "Change End of Line Sequence: LF",
+        run: () => this.setEol("\n"),
+      },
+      {
+        action: "eolCrlf",
+        label: "Change End of Line Sequence: CRLF",
+        run: () => this.setEol("\r\n"),
+      },
+      {
+        action: "indentToSpaces",
+        label: "Convert Indentation to Spaces",
+        run: () =>
+          this.withDocument((document) => {
+            const size = document.indentation.size;
+            document.setText(
+              document.lines
+                .map((line) =>
+                  line.replace(/^[ \t]+/, (lead) =>
+                    lead.replace(/\t/g, " ".repeat(size)),
+                  ),
+                )
+                .join("\n"),
+            );
+            document.indentation = { useTabs: false, size };
+          }),
+      },
+      {
+        action: "indentToTabs",
+        label: "Convert Indentation to Tabs",
+        run: () =>
+          this.withDocument((document) => {
+            const size = document.indentation.size;
+            document.setText(
+              document.lines
+                .map((line) =>
+                  line.replace(/^[ \t]+/, (lead) => {
+                    const cells = lead.replace(/\t/g, " ".repeat(size)).length;
+                    return (
+                      "\t".repeat(Math.floor(cells / size)) +
+                      " ".repeat(cells % size)
+                    );
+                  }),
+                )
+                .join("\n"),
+            );
+            document.indentation = { useTabs: true, size };
+          }),
+      },
+      {
         action: "outline",
         label: "View: Show Outline",
         run: () => {
@@ -4258,6 +4327,11 @@ export class Workbench {
    */
   key(key: KeyEvent) {
     if (this.dialog) this.dialogKey(key);
+    else if (
+      this.focus === "settings" &&
+      this.settingsView.editing?.key.startsWith("keys.")
+    )
+      this.settingsKey(key);
     else if (this.menu) this.menuKey(key);
     else if (this.palette) this.paletteKey(key);
     else {
