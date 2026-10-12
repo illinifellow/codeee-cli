@@ -577,6 +577,26 @@ export const CodeView = memo(
     );
     const occurrence = focused ? occurrenceOf(document) : null;
     const activeGuide = settings.guides ? activeGuideOf(document) : null;
+    const mapLines = new Map<number, string>();
+    if (map) {
+      for (const match of find?.matches ?? [])
+        mapLines.set(match.line, palette.findCurrent);
+      for (const problem of tab.diagnostics ?? [])
+        if (problem.severity === "error" || !mapLines.has(problem.line))
+          mapLines.set(
+            problem.line,
+            problem.severity === "error" ? palette.danger : palette.warning,
+          );
+    }
+    const mapColor = (row: number) => {
+      if (!map) return palette.textMuted;
+      const first = map.lineAt(row);
+      for (let line = first; line < first + 4; line++) {
+        const color = mapLines.get(line);
+        if (color) return color;
+      }
+      return palette.textMuted;
+    };
     const rows: ReactNode[] = [];
     const wrap = settings.wordWrap || tab.language === null;
     const entries: {
@@ -642,7 +662,7 @@ export const CodeView = memo(
             {" ".repeat(width - mapWidth)}
             {map ? (
               <Text
-                color={palette.textMuted}
+                color={mapColor(row)}
                 backgroundColor={
                   map.viewport(row) ? palette.lineHighlight : undefined
                 }
@@ -796,7 +816,7 @@ export const CodeView = memo(
           ) : null}
           {map ? (
             <Text
-              color={palette.textMuted}
+              color={mapColor(row)}
               backgroundColor={
                 map.viewport(row) ? palette.lineHighlight : undefined
               }
