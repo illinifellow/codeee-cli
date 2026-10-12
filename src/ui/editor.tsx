@@ -73,6 +73,70 @@ const contrastOn = (color: string) => {
     : "#ffffff";
 };
 
+/** Cells the minimap takes, and the narrowest editor that shows one. */
+const MINIMAP_CELLS = 10;
+const MINIMAP_MIN_EDITOR = 60;
+
+/** Braille dots by row (0-3) and column (0-1) within a cell. */
+const BRAILLE_DOTS = [
+  [0x01, 0x08],
+  [0x02, 0x10],
+  [0x04, 0x20],
+  [0x40, 0x80],
+];
+
+/** Characters of code one minimap dot stands for, sideways. */
+const CHARACTERS_PER_DOT = 2;
+
+/**
+ * Draws the minimap as VS Code's: four code lines per row in braille dots, a dot wherever code has a character; the
+ * mapped stretch follows the scroll so the viewport is always on it.
+ * @returns each row's text, whether a row lies in the viewport, and the line a row stands for
+ */
+const minimap = (
+  lines: string[],
+  scrollTop: number,
+  height: number,
+  cells: number,
+  tabSize: number,
+) => {
+  const span = height * 4;
+  const first =
+    lines.length <= span
+      ? 0
+      : Math.round(
+          ((lines.length - span) * scrollTop) /
+            Math.max(1, lines.length - height),
+        );
+  const rows: string[] = [];
+  for (let row = 0; row < height; row++) {
+    const codes = new Array(cells).fill(0);
+    for (let dotRow = 0; dotRow < 4; dotRow++) {
+      const text = lines[first + row * 4 + dotRow];
+      if (text === undefined) continue;
+      const expanded = text.replace(/\t/g, " ".repeat(tabSize));
+      for (let cell = 0; cell < cells; cell++)
+        for (let dotColumn = 0; dotColumn < 2; dotColumn++) {
+          const start = (cell * 2 + dotColumn) * CHARACTERS_PER_DOT;
+          if (expanded.slice(start, start + CHARACTERS_PER_DOT).trim())
+            codes[cell] |= BRAILLE_DOTS[dotRow][dotColumn];
+        }
+    }
+    rows.push(
+      codes
+        .map((code) => (code ? String.fromCharCode(0x2800 + code) : " "))
+        .join(""),
+    );
+  }
+  const lineAt = (row: number) => first + Math.max(0, row) * 4;
+  return {
+    rows,
+    lineAt,
+    viewport: (row: number) =>
+      lineAt(row) + 3 >= scrollTop && lineAt(row) < scrollTop + height,
+  };
+};
+
 /** @returns each bracket's colour by its nesting depth, for one line */
 const bracketColorsOf = (
   document: Document,
@@ -323,7 +387,18 @@ export const CodeView = memo(
     const document = tab.document!;
     const { settings } = workbench.config;
     const gutter = workbench.gutterWidth(tab);
-    const codeWidth = Math.max(1, width - gutter);
+    const mapWidth =
+      settings.minimap && width >= MINIMAP_MIN_EDITOR ? MINIMAP_CELLS : 0;
+    const codeWidth = Math.max(1, width - gutter - mapWidth);
+    const map = mapWidth
+      ? minimap(
+          document.lines,
+          tab.scrollTop,
+          height,
+          mapWidth,
+          document.indentation.size,
+        )
+      : null;
     const selection = document.hasSelection ? document.range() : null;
     const find = workbench.find;
     const bracket =
@@ -335,7 +410,21 @@ export const CodeView = memo(
     for (let row = 0; row < height; row++) {
       const line = tab.scrollTop + row;
       if (line >= document.lines.length) {
-        rows.push(<Text key={row}>{" ".repeat(width)}</Text>);
+        rows.push(
+          <Text key={row}>
+            {" ".repeat(width - mapWidth)}
+            {map ? (
+              <Text
+                color={palette.textMuted}
+                backgroundColor={
+                  map.viewport(row) ? palette.lineHighlight : undefined
+                }
+              >
+                {map.rows[row]}
+              </Text>
+            ) : null}
+          </Text>,
+        );
         continue;
       }
       const current = line === document.cursor.line;
@@ -416,6 +505,16 @@ export const CodeView = memo(
             {gutterText}
           </Text>
           <PieceText pieces={pieces} />
+          {map ? (
+            <Text
+              color={palette.textMuted}
+              backgroundColor={
+                map.viewport(row) ? palette.lineHighlight : undefined
+              }
+            >
+              {map.rows[row]}
+            </Text>
+          ) : null}
         </Box>,
       );
     }
@@ -427,6 +526,20 @@ export const CodeView = memo(
         height={height}
         flexDirection="column"
         onPress={(event) => {
+          if (map && event.localX >= width - mapWidth) {
+            const scrollTo = (localY: number) => {
+              tab.scrollTop = Math.max(
+                0,
+                Math.min(
+                  document.lines.length - 1,
+                  map.lineAt(localY) - Math.floor(height / 2),
+                ),
+              );
+              workbench.changed();
+            };
+            scrollTo(event.localY);
+            return (move) => scrollTo(move.localY);
+          }
           const position = pointAt(event);
           if (!position) return;
           workbench.focus = "editor";
