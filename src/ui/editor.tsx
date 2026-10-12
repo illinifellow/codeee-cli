@@ -446,6 +446,7 @@ export const CodeView = memo(
         : settings.relativeLineNumbers && !current
           ? String(Math.abs(line - document.cursor.line))
           : String(line + 1);
+      const change = tab.changes?.get(line);
       const gutterText = settings.lineNumbers
         ? ` ${number.padStart(gutter - workbench.theme.spacing.gutterPadding - 1)}${" ".repeat(workbench.theme.spacing.gutterPadding)}`
         : " ";
@@ -524,7 +525,19 @@ export const CodeView = memo(
             color={current ? palette.gutterActive : palette.gutter}
             backgroundColor={lineBackground}
           >
-            {gutterText}
+            {gutterText.slice(0, -1)}
+          </Text>
+          <Text
+            color={
+              change === "added"
+                ? palette.added
+                : change === "deleted"
+                  ? palette.danger
+                  : palette.modified
+            }
+            backgroundColor={lineBackground}
+          >
+            {change ? (change === "deleted" ? "▔" : "▎") : gutterText.slice(-1)}
           </Text>
           <PieceText pieces={pieces} />
           {map ? (

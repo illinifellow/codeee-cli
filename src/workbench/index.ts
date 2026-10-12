@@ -60,7 +60,14 @@ import {
   type FileResult,
   type SearchMatch,
 } from "@/search";
-import { blameLine, readGitStatus, timeAgo, type GitStatus } from "@/git";
+import {
+  blameLine,
+  diffLines,
+  readGitStatus,
+  timeAgo,
+  type GitStatus,
+  type LineChange,
+} from "@/git";
 import { Icons } from "@/icons";
 import { bindingOf, type KeyEvent } from "@/keys";
 import { commentOf, languageOf } from "@/languages";
@@ -93,6 +100,8 @@ export interface Tab {
   notice: string | null;
   /** A format before saving is running. */
   formatting?: boolean;
+  /** How lines differ from the last commit, for the gutter. */
+  changes?: Map<number, LineChange>;
   /** ESLint's problems for the text as it is now. */
   diagnostics?: Diagnostic[];
   /** Pending lint and auto save. */
@@ -1297,13 +1306,19 @@ export class Workbench {
    */
   lint(tab: Tab) {
     const document = tab.document;
-    if (!tab.path || !document || !this.config.settings.eslint) return;
+    if (!tab.path || !document) return;
     if (tab.lintTimer) clearTimeout(tab.lintTimer);
     tab.lintTimer = setTimeout(async () => {
       const version = document.version;
-      const diagnostics = await lintText(tab.path!, document.text());
+      const [diagnostics, changes] = await Promise.all([
+        this.config.settings.eslint ? lintText(tab.path!, document.text()) : [],
+        this.git
+          ? diffLines(tab.path!, document.text())
+          : new Map<number, LineChange>(),
+      ]);
       if (document.version !== version) return;
       tab.diagnostics = diagnostics;
+      tab.changes = changes;
       this.changed();
     }, this.config.limits.lintDelayMs);
   }

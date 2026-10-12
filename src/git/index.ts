@@ -6,6 +6,8 @@
  * repository has no decorations.
  */
 import { execFile } from "node:child_process";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 /** A file's state, as VS Code's explorer letters it. */
@@ -199,3 +201,54 @@ export const timeAgo = (seconds: number, now = Date.now()) => {
   }
   return "just now";
 };
+
+/** How a line differs from the last commit, for the gutter. */
+export type LineChange = "added" | "modified" | "deleted";
+
+/**
+ * Compares a file's text in the editor with its last committed version, as VS Code's gutter does.
+ * @param path the file
+ * @param text the text in the editor, saved or not
+ * @returns changes by 0-based line (`deleted` marks the line below a removal), empty outside a repository or for
+ *   an untracked file
+ */
+export const diffLines = async (path: string, text: string) => {
+  const changes = new Map<number, LineChange>();
+  const folder = path.slice(0, path.lastIndexOf("/"));
+  const committed = await run(
+    ["show", `HEAD:./${path.slice(folder.length + 1)}`],
+    folder,
+  );
+  if (committed === null) return changes;
+  const scratch = mkdtempSync(join(tmpdir(), "codeee-diff-"));
+  const [before, after] = [join(scratch, "a"), join(scratch, "b")];
+  writeFileSync(before, committed);
+  writeFileSync(after, text);
+  const output = await runAny(
+    ["diff", "--no-index", "--no-color", "-U0", before, after],
+    folder,
+  );
+  rmSync(scratch, { recursive: true, force: true });
+  for (const match of output.matchAll(
+    /^@@ -\d+(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/gm,
+  )) {
+    const removed = match[1] === undefined ? 1 : Number(match[1]);
+    const start = Number(match[2]);
+    const added = match[3] === undefined ? 1 : Number(match[3]);
+    if (!added) changes.set(Math.max(0, start), "deleted");
+    for (let line = 0; line < added; line++)
+      changes.set(start - 1 + line, removed ? "modified" : "added");
+  }
+  return changes;
+};
+
+/** Runs git and returns its output even when it exits with 1, as `diff` does when files differ. */
+const runAny = (args: string[], cwd: string) =>
+  new Promise<string>((resolve) =>
+    execFile(
+      "git",
+      args,
+      { cwd, maxBuffer: 64 * 1024 * 1024 },
+      (_error, stdout) => resolve(stdout ?? ""),
+    ),
+  );
