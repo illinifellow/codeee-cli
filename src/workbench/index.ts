@@ -1379,6 +1379,67 @@ export class Workbench {
     return symbols;
   }
 
+  /**
+   * Goes to where the word at the cursor is declared, as F12 does: a symbol of this file first, then a declaration
+   * found across the folder (function, class, interface, type, const, let, var, def).
+   */
+  async goToDefinition() {
+    const tab = this.tab;
+    const document = tab?.document;
+    const word = document?.wordAt(document.cursor);
+    if (!tab || !document || !word) return;
+    const name = document.lines[word[0].line].slice(
+      word[0].column,
+      word[1].column,
+    );
+    const own = this.symbolsOf(tab).find(
+      (symbol) => symbol.name === name && symbol.line !== document.cursor.line,
+    );
+    if (own) {
+      document.setCursor({
+        line: own.line,
+        column: Math.max(0, document.lines[own.line].indexOf(name)),
+      });
+      this.reveal(true);
+      return this.changed();
+    }
+    this.say(`Looking for the definition of '${name}'…`);
+    const escaped = name.replace(/[$]/g, "\\$");
+    const query = `(?:function\\*?|class|interface|type|enum|const|let|var|def|fn|struct)\\s+${escaped}\\b`;
+    const results = await searchFolder(
+      this.root,
+      {
+        query,
+        include: "",
+        exclude: "",
+        caseSensitive: true,
+        regex: true,
+        wholeWord: false,
+      },
+      {
+        exclude: [
+          ...this.config.settings.exclude,
+          ...this.config.settings.searchExclude,
+        ],
+        maxFiles: this.config.limits.quickOpenFiles,
+        maxMatches: 20,
+        maxBytes: this.config.limits.maxFileMegabytes * 1024 * 1024,
+      },
+    ).catch(() => []);
+    const found = results[0];
+    if (!found) return this.say(`No definition found for '${name}'`);
+    const match = found.matches[0];
+    this.open(found.path, {
+      line: match.line,
+      column: match.text.indexOf(name, match.start),
+    });
+    this.say(
+      results.length > 1 || found.matches.length > 1
+        ? `${results.reduce((total, result) => total + result.matches.length, 0)} definitions; showing the first`
+        : `Definition of '${name}'`,
+    );
+  }
+
   /** Renames the word at the cursor everywhere in the file, as F2 does for a symbol, matching whole words and case. */
   renameSymbol() {
     const document = this.tab?.document;
@@ -1789,6 +1850,8 @@ export class Workbench {
         break;
       case "f2":
         return this.renameSymbol();
+      case "f12":
+        return void this.goToDefinition();
       default:
         return;
     }
@@ -2776,6 +2839,11 @@ export class Workbench {
         action: "reopenClosed",
         label: "View: Reopen Closed Editor",
         run: () => this.reopenClosed(),
+      },
+      {
+        action: "goToDefinition",
+        label: "Go to Definition",
+        run: () => void this.goToDefinition(),
       },
       {
         action: "rename",
