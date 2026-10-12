@@ -444,7 +444,11 @@ const Explorer = ({
           width={width}
           onClick={() => {
             workbench.focus = "explorer";
-            workbench.openRow(index, false);
+            workbench.openRow(index, false, false);
+          }}
+          onDoubleClick={() => {
+            workbench.focus = "explorer";
+            workbench.openRow(index, false, true);
           }}
           onPress={() => (move) => {
             const target = rows[index + move.localY];

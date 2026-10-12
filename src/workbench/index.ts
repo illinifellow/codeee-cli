@@ -105,6 +105,8 @@ export interface Tab {
   scrollLeft: number;
   /** Why the file is not shown as text (binary, too large, unreadable). */
   notice: string | null;
+  /** Opened by a single click in the explorer: the next such click replaces it; an edit or a double click keeps it. */
+  preview?: boolean;
   /** A format before saving is running. */
   formatting?: boolean;
   /** The line and first cell each editor row showed at the last draw, for clicks under word wrap. */
@@ -437,7 +439,12 @@ export class Workbench {
    */
   open(
     path: string,
-    options: { line?: number; column?: number; quiet?: boolean } = {},
+    options: {
+      line?: number;
+      column?: number;
+      quiet?: boolean;
+      preview?: boolean;
+    } = {},
   ) {
     const existing = this.tabs.findIndex((tab) => tab.path === path);
     if (existing >= 0) {
@@ -461,12 +468,23 @@ export class Workbench {
       const remembered = this.config.state.positions[path];
       if (tab.document && remembered)
         tab.document.setCursor({ line: remembered[0], column: remembered[1] });
-      const after = this.tabs.length ? this.active + 1 : 0;
-      this.tabs.splice(after, 0, tab);
-      this.active = after;
+      const reuse = options.preview
+        ? this.tabs.findIndex((open) => open.preview && !open.document?.dirty)
+        : -1;
+      tab.preview = options.preview;
+      if (reuse >= 0) {
+        this.tabs[reuse].highlight?.dispose();
+        this.tabs[reuse] = tab;
+        this.active = reuse;
+      } else {
+        const after = this.tabs.length ? this.active + 1 : 0;
+        this.tabs.splice(after, 0, tab);
+        this.active = after;
+      }
       this.saveSession();
     }
     const tab = this.tabs[this.active];
+    if (existing >= 0 && !options.preview) tab.preview = false;
     if (tab.document && options.line !== undefined)
       tab.document.setCursor({
         line: options.line,
@@ -521,6 +539,7 @@ export class Workbench {
       );
     if (document) {
       document.onChange((start, removed, inserted) => {
+        tab.preview = false;
         if (tab.folds?.size)
           tab.folds = new Set(
             [...tab.folds].flatMap((line) =>
@@ -899,14 +918,14 @@ export class Workbench {
    * @param index the row
    * @param keepFocus leave the keyboard in the explorer
    */
-  openRow(index: number, keepFocus = false) {
+  openRow(index: number, keepFocus = false, pin = true) {
     const row = this.explorerRows()[index];
     if (!row) return;
     this.explorerCursor = index;
     if (row.folder) {
       this.tree.toggle(row.path);
       this.focus = "explorer";
-    } else this.open(row.path, { quiet: keepFocus });
+    } else this.open(row.path, { quiet: keepFocus, preview: !pin });
     this.changed();
   }
 
