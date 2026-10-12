@@ -53,16 +53,20 @@ describe("auto-indent and brackets", () => {
     expect(document.cursor).toEqual({ line: 1, column: 2 });
   });
 
-  it("closes a bracket, steps over a typed closer, and deletes an empty pair with one backspace", () => {
+  it("closes a bracket, steps over the closer it typed, and deletes a pair it typed with one backspace", () => {
     const document = open("");
     document.type("(");
     expect(document.text()).toBe("()");
     document.type(")");
     expect(document.text()).toBe("()");
     expect(document.cursor.column).toBe(2);
+    const fresh = open("");
+    fresh.type("(");
+    fresh.backspace();
+    expect(fresh.text()).toBe("");
     document.setCursor({ line: 0, column: 1 });
     document.backspace();
-    expect(document.text()).toBe("");
+    expect(document.text()).toBe(")");
   });
 
   it("surrounds a selection with a typed quote", () => {
@@ -283,5 +287,21 @@ describe("line openers", () => {
     document.setCursor({ line: 0, column: 3 });
     document.deleteAllLeft();
     expect(document.lines[0]).toBe("  ");
+  });
+});
+
+describe("auto closing as vs code", () => {
+  it("steps over only the closers it typed itself", () => {
+    const document = open("");
+    document.type("(");
+    document.type("a");
+    document.type(")");
+    expect(document.text()).toBe("(a)");
+    document.type(")");
+    expect(document.text()).toBe("(a))");
+    const other = open("f(x)");
+    other.setCursor({ line: 0, column: 3 });
+    other.type(")");
+    expect(other.text()).toBe("f(x))");
   });
 });

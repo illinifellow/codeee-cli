@@ -341,6 +341,8 @@ export class Document {
    */
   setCursor(position: Position, select = false, keepGoal = false) {
     this.extras = [];
+    if (this.autoClosed.length && position.line !== this.autoClosed[0].line)
+      this.autoClosed = [];
     if (select) this.anchor ??= { ...this.cursor };
     else this.anchor = null;
     this.cursor = this.clamp(position);
@@ -706,12 +708,15 @@ export class Document {
       if (
         !this.hasSelection &&
         (CLOSING.includes(text) || QUOTES.includes(text)) &&
-        next === text
-      )
+        next === text &&
+        this.isAutoClosed(this.cursor)
+      ) {
+        this.forgetAutoClosed(this.cursor);
         return this.setCursor({
           ...this.cursor,
           column: this.cursor.column + 1,
         });
+      }
       const closes =
         !next ||
         /\s/.test(next) ||
@@ -724,10 +729,15 @@ export class Document {
           (QUOTES.includes(text) && !WORD.test(previous) && previous !== text))
       ) {
         this.replace(start, end, text + PAIRS[text], "type");
-        return this.setCursor({
+        this.setCursor({
           ...this.cursor,
           column: this.cursor.column - 1,
         });
+        this.autoClosed.push({
+          line: this.cursor.line,
+          fromEnd: this.lines[this.cursor.line].length - this.cursor.column,
+        });
+        return;
       }
     }
     if (text === ">" && !this.hasSelection && this.options.autoClosingTags) {
@@ -816,8 +826,10 @@ export class Document {
       this.options.autoClosingBrackets &&
       column &&
       PAIRS[text[column - 1]] === text[column] &&
-      text[column]
+      text[column] &&
+      this.isAutoClosed(this.cursor)
     ) {
+      this.forgetAutoClosed(this.cursor);
       return void this.replace(
         { line, column: column - 1 },
         { line, column: column + 1 },
@@ -1241,6 +1253,27 @@ export class Document {
       );
     }
     return depths[Math.min(line, depths.length - 1)];
+  }
+
+  /**
+   * Closing brackets and quotes the editor typed itself, on the cursor's line, by their distance from the line's end
+   * (which typing inside the pair keeps); only these are stepped over or deleted with their opener, as VS Code's
+   * `autoClosingOvertype` and `autoClosingDelete` set to `auto`.
+   */
+  private autoClosed: { line: number; fromEnd: number }[] = [];
+
+  private isAutoClosed(position: Position) {
+    const fromEnd = this.lines[position.line].length - position.column;
+    return this.autoClosed.some(
+      (entry) => entry.line === position.line && entry.fromEnd === fromEnd,
+    );
+  }
+
+  private forgetAutoClosed(position: Position) {
+    const fromEnd = this.lines[position.line].length - position.column;
+    this.autoClosed = this.autoClosed.filter(
+      (entry) => !(entry.line === position.line && entry.fromEnd === fromEnd),
+    );
   }
 
   /** Further cursors beside the main one, each with the start of its selection, as Add Next Occurrence makes them. */
