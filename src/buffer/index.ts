@@ -683,8 +683,7 @@ export class Document {
         !next ||
         /\s/.test(next) ||
         CLOSING.includes(next) ||
-        next === ";" ||
-        next === ",";
+        ";:.,=>`".includes(next);
       if (
         !this.hasSelection &&
         closes &&
@@ -721,6 +720,20 @@ export class Document {
   newline() {
     const [start, end] = this.range();
     const line = this.lines[start.line];
+    if (
+      this.options.autoIndent &&
+      !this.hasSelection &&
+      line.length &&
+      !line.trim()
+    ) {
+      this.replace(
+        { line: start.line, column: 0 },
+        { line: start.line, column: line.length },
+        `\n${line}`,
+        "edit",
+      );
+      return;
+    }
     if (!this.options.autoIndent) return this.replace(start, end, "\n", "edit");
     const indent = indentOf(line).slice(0, start.column);
     const previous = line.slice(0, start.column).trimEnd().at(-1) ?? "";
@@ -944,10 +957,18 @@ export class Document {
     });
   }
 
-  /** Copies the selected lines, or the cursor's line, below themselves, as VS Code's Shift+Alt+↓. */
-  duplicateLines() {
+  /**
+   * Copies the selected lines, or the cursor's line, below or above themselves, as VS Code's Shift+Alt+↓ and ↑.
+   * @param up copy above, keeping the cursor on the upper copy
+   */
+  duplicateLines(up = false) {
     const [first, last] = this.selectedLines();
     const copy = this.lines.slice(first, last + 1);
+    if (up)
+      return this.replaceBlock(first, 0, copy, {
+        cursor: this.cursor,
+        anchor: this.anchor,
+      });
     const count = copy.length;
     const move = (position: Position) => ({
       line: position.line + count,
@@ -1173,6 +1194,39 @@ export class Document {
 
   /** Further cursors beside the main one, each with the start of its selection, as Add Next Occurrence makes them. */
   extras: { anchor: Position; cursor: Position }[] = [];
+
+  /**
+   * Moves every cursor the same way, as arrows and Home/End do with several cursors in VS Code; cursors that meet merge.
+   * @param move the movement, applied to each cursor in turn
+   */
+  moveAll(move: (document: Document) => void) {
+    const all = [
+      { anchor: this.anchor, cursor: this.cursor },
+      ...this.extras.map((extra) => ({
+        anchor: same(extra.anchor, extra.cursor) ? null : extra.anchor,
+        cursor: extra.cursor,
+      })),
+    ];
+    const moved = all.map((selection) => {
+      this.extras = [];
+      this.anchor = selection.anchor;
+      this.cursor = selection.cursor;
+      this.goal = null;
+      move(this);
+      return { anchor: this.anchor, cursor: this.cursor };
+    });
+    const unique = moved.filter(
+      (selection, index) =>
+        moved.findIndex((other) => same(other.cursor, selection.cursor)) ===
+        index,
+    );
+    this.anchor = unique[0].anchor;
+    this.cursor = unique[0].cursor;
+    this.extras = unique.slice(1).map((selection) => ({
+      anchor: selection.anchor ?? selection.cursor,
+      cursor: selection.cursor,
+    }));
+  }
 
   /** @returns every selection, the main one included, as ordered ranges */
   allRanges(): [Position, Position][] {

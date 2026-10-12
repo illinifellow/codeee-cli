@@ -1969,6 +1969,20 @@ export class Workbench {
     const select = key.shift;
     const word = key.ctrl || key.alt;
     const page = Math.max(1, this.view.rows - 1);
+    if (
+      document.extras.length &&
+      ["left", "right", "home", "end", "up", "down"].includes(key.name) &&
+      !key.alt
+    ) {
+      document.moveAll((one) => {
+        if (key.name === "left") one.left(key.shift, key.ctrl);
+        else if (key.name === "right") one.right(key.shift, key.ctrl);
+        else if (key.name === "home") one.home(key.shift);
+        else if (key.name === "end") one.end(key.shift);
+        else one.vertical(key.name === "up" ? -1 : 1, key.shift);
+      });
+      return this.afterEdit();
+    }
     if (document.extras.length) {
       if (key.name === "text" || key.name === "paste") {
         document.editAll("type", key.text!.replace(/\n/g, " "));
@@ -3146,6 +3160,12 @@ export class Workbench {
         label: "View: Toggle Word Wrap",
         run: () =>
           this.setSetting("settings.wordWrap", !this.config.settings.wordWrap),
+      },
+      {
+        action: "duplicateLineUp",
+        label: "Copy Line Up",
+        run: () =>
+          this.withDocument((document) => document.duplicateLines(true)),
       },
       {
         action: "goToSymbol",

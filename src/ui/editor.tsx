@@ -102,6 +102,60 @@ export const wrapSegments = (
   return segments;
 };
 
+/**
+ * What VS Code highlights elsewhere in the file: the selected text when it sits on one line, else the word at the cursor.
+ * @returns the text and whether it must match as a whole word, or `null`
+ */
+const occurrenceOf = (document: Document) => {
+  if (document.hasSelection) {
+    const text = document.selectedText();
+    return text.trim() && !text.includes("\n") ? { text, whole: false } : null;
+  }
+  const word = document.wordAt(document.cursor);
+  return word
+    ? {
+        text: document.lines[word[0].line].slice(
+          word[0].column,
+          word[1].column,
+        ),
+        whole: true,
+      }
+    : null;
+};
+
+/** @returns the occurrences on a line, the cursor's own left out */
+const occurrencesIn = (
+  text: string,
+  occurrence: { text: string; whole: boolean },
+  line: number,
+  document: Document,
+) => {
+  const ranges: { start: number; end: number }[] = [];
+  const [from, to] = document.range();
+  for (
+    let start = text.indexOf(occurrence.text);
+    start >= 0;
+    start = text.indexOf(occurrence.text, start + 1)
+  ) {
+    const end = start + occurrence.text.length;
+    if (
+      occurrence.whole &&
+      (/[\p{L}\p{N}_$]/u.test(text[start - 1] ?? "") ||
+        /[\p{L}\p{N}_$]/u.test(text[end] ?? ""))
+    )
+      continue;
+    if (
+      line === from.line &&
+      start <= Math.max(from.column, to.column) &&
+      end >= Math.min(from.column, to.column) &&
+      line === to.line
+    )
+      continue;
+    ranges.push({ start, end });
+  }
+  return ranges;
+};
+
 /** Cells the minimap takes, and the narrowest editor that shows one. */
 const MINIMAP_CELLS = 10;
 const MINIMAP_MIN_EDITOR = 60;
@@ -227,6 +281,8 @@ const codeRow = (
     /** Columns of the cursors on the line. */
     cursors: number[];
     lineBackground?: string;
+    /** Other occurrences of the selected text or the word at the cursor, drawn on the inactive selection colour. */
+    occurrences: { start: number; end: number }[];
     /** Which whitespace is drawn: `none`, `selection` or `all`. */
     whitespace: string;
     /** Ranges ESLint reported on the line, drawn underlined. */
@@ -242,6 +298,7 @@ const codeRow = (
     after?: { text: string; color: string };
     colors: {
       selection: string;
+      selectionInactive: string;
       findMatch: string;
       findCurrent: string;
       bracket: string;
@@ -309,9 +366,13 @@ const codeRow = (
             ? match.current
               ? colors.findCurrent
               : colors.findMatch
-            : brackets.includes(column)
-              ? colors.bracket
-              : (swatch?.color ?? options.lineBackground);
+            : options.occurrences.some(
+                  (range) => column >= range.start && column < range.end,
+                )
+              ? colors.selectionInactive
+              : brackets.includes(column)
+                ? colors.bracket
+                : (swatch?.color ?? options.lineBackground);
       const guide =
         placed.source === " " &&
         options.guides.includes(placed.start) &&
@@ -472,6 +533,7 @@ export const CodeView = memo(
       0,
       visible.findIndex((line) => line >= tab.scrollTop),
     );
+    const occurrence = focused ? occurrenceOf(document) : null;
     const rows: ReactNode[] = [];
     const wrap = settings.wordWrap || tab.language === null;
     const entries: {
@@ -627,6 +689,9 @@ export const CodeView = memo(
             ? colorSwatches(document.lines[line])
             : [],
           whitespace: settings.renderWhitespace,
+          occurrences: occurrence
+            ? occurrencesIn(document.lines[line], occurrence, line, document)
+            : [],
           underlines: problems.map((problem) => ({
             start: problem.line === line ? problem.start : 0,
             end:

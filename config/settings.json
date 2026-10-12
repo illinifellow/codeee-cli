@@ -110,7 +110,8 @@
     "addNextOccurrence": "ctrl+d",
     "wordWrap": "alt+z",
     "foldAll": "alt+-",
-    "unfoldAll": "alt+="
+    "unfoldAll": "alt+=",
+    "duplicateLineUp": "alt+shift+up"
   },
   "themes": {
     "golden-brown": {

@@ -130,6 +130,12 @@ const KEYS: [string, string, string, string][] = [
   ["foldAll", "View", "Fold All", "Fold every block of the file."],
   ["unfoldAll", "View", "Unfold All", "Unfold every block of the file."],
   [
+    "duplicateLineUp",
+    "Edit",
+    "Copy Line Up",
+    "Copy the selected lines above themselves.",
+  ],
+  [
     "reopenClosed",
     "View",
     "Reopen Closed Editor",
