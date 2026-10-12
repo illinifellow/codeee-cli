@@ -3090,6 +3090,7 @@ export class Workbench {
         this.updateSuggestions(false);
         break;
       case "delete":
+        if (key.shift && !key.ctrl && !key.alt) return this.cut();
         document.deleteForward(word);
         break;
       case "tab":
