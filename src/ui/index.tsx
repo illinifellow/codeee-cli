@@ -32,6 +32,31 @@ import { SearchView } from "./search";
 import { SettingsPage } from "./settings";
 import { useTheme } from "./theme";
 
+/** The fewest cells or rows an editor group keeps when its edge is dragged. */
+const GROUP_MIN = 8;
+
+/**
+ * The sizes of the editor groups along the split: what the user dragged them to, scaled to the space, or equal parts.
+ * @param workbench the editor state, holding the remembered sizes
+ * @param available the cells or rows the groups share, dividers left out
+ * @returns one size per group, summing to `available`
+ */
+const groupSizes = (workbench: Workbench, available: number) => {
+  const count = workbench.groups.length;
+  const current = workbench.groupSizes;
+  const total = current.reduce((sum, size) => sum + size, 0);
+  let sizes =
+    current.length === count && total > 0
+      ? current.map((size) =>
+          Math.max(1, Math.floor((size * available) / total)),
+        )
+      : workbench.groups.map(() => Math.floor(available / count));
+  sizes[count - 1] += available - sizes.reduce((sum, size) => sum + size, 0);
+  sizes = sizes.map((size) => Math.max(1, size));
+  workbench.groupSizes = sizes;
+  return sizes;
+};
+
 /** `ctrl+s` as the toolbar shows it: `^S`. */
 export const shortKey = (binding: string) =>
   binding
@@ -326,11 +351,12 @@ export const App = ({
           {workbench.groups.map((group, groupIndex) => {
             const count = workbench.groups.length;
             const vertical = workbench.layout === "vertical";
-            const share = (total: number) =>
-              Math.floor((total - (count - 1)) / count) +
-              (groupIndex === count - 1 ? (total - (count - 1)) % count : 0);
-            const groupWidth = vertical ? mainWidth : share(mainWidth);
-            const groupHeight = vertical ? share(bodyHeight) : bodyHeight;
+            const sizes = groupSizes(
+              workbench,
+              (vertical ? bodyHeight : mainWidth) - (count - 1),
+            );
+            const groupWidth = vertical ? mainWidth : sizes[groupIndex];
+            const groupHeight = vertical ? sizes[groupIndex] : bodyHeight;
             const activeGroup = groupIndex === workbench.group;
             const crumbs =
               config.settings.breadcrumbs && !workbench.zen ? 1 : 0;
@@ -350,10 +376,18 @@ export const App = ({
             if (activeGroup) workbench.view = { rows, columns: groupWidth };
             const left =
               (showExplorer ? sideWidth + 1 : 0) +
-              (vertical ? 0 : groupIndex * (groupWidth + 1));
+              (vertical
+                ? 0
+                : sizes
+                    .slice(0, groupIndex)
+                    .reduce((total, size) => total + size + 1, 0));
             const top =
               (workbench.zen ? 0 : 2) +
-              (vertical ? groupIndex * (groupHeight + 1) : 0);
+              (vertical
+                ? sizes
+                    .slice(0, groupIndex)
+                    .reduce((total, size) => total + size + 1, 0)
+                : 0);
             workbench.groupBounds[groupIndex] = {
               left,
               right: left + groupWidth,
@@ -363,11 +397,37 @@ export const App = ({
             return (
               <Fragment key={groupIndex}>
                 {groupIndex ? (
-                  <Text color={palette.border}>
-                    {vertical
-                      ? glyphs.rule.repeat(mainWidth)
-                      : `${glyphs.divider}\n`.repeat(bodyHeight).trimEnd()}
-                  </Text>
+                  <Clickable
+                    width={vertical ? mainWidth : 1}
+                    height={vertical ? 1 : bodyHeight}
+                    onPress={() => (move) => {
+                      const origin = vertical
+                        ? workbench.zen
+                          ? 0
+                          : 2
+                        : showExplorer
+                          ? sideWidth + 1
+                          : 0;
+                      const position = (vertical ? move.y : move.x) - origin;
+                      const start = sizes
+                        .slice(0, groupIndex - 1)
+                        .reduce((total, size) => total + size + 1, 0);
+                      const pair = sizes[groupIndex - 1] + sizes[groupIndex];
+                      const previous = Math.max(
+                        GROUP_MIN,
+                        Math.min(pair - GROUP_MIN, position - start),
+                      );
+                      workbench.groupSizes[groupIndex - 1] = previous;
+                      workbench.groupSizes[groupIndex] = pair - previous;
+                      workbench.changed();
+                    }}
+                  >
+                    <Text color={palette.border}>
+                      {vertical
+                        ? glyphs.rule.repeat(mainWidth)
+                        : `${glyphs.divider}\n`.repeat(bodyHeight).trimEnd()}
+                    </Text>
+                  </Clickable>
                 ) : null}
                 <Box
                   flexDirection="column"
@@ -731,7 +791,15 @@ const TabStrip = ({
         glyphs,
         workbench.config.settings.wrapTabs,
       ).map((row, rowIndex) => (
-        <Box key={rowIndex} height={1} width={width} overflow="hidden">
+        <Clickable
+          key={rowIndex}
+          height={1}
+          width={width}
+          onDoubleClick={() => {
+            workbench.focusGroup(group);
+            workbench.newFile();
+          }}
+        >
           {row.map((index) => {
             const tab = workbench.groups[group].tabs[index];
             const icon =
@@ -825,7 +893,7 @@ const TabStrip = ({
               </Clickable>
             );
           })}
-        </Box>
+        </Clickable>
       ))}
     </Box>
   );

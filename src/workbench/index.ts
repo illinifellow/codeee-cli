@@ -347,6 +347,8 @@ export class Workbench {
   /** The screen cells each group spans, set by the screen, for dropping dragged tabs. */
   groupBounds: { left: number; right: number; top: number; bottom: number }[] =
     [];
+  /** The editor groups' sizes along the split, as dragged; equal when empty. */
+  groupSizes: number[] = [];
   /** Zen Mode hides the explorer, the toolbar and the breadcrumbs. */
   zen = false;
   /** Groups side by side, or stacked, as View: Toggle Vertical/Horizontal Editor Layout. */
