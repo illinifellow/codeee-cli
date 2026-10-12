@@ -313,7 +313,12 @@ export class Workbench {
   /** The group with the keyboard. */
   group = 0;
   /** The screen cells each group spans, set by the screen, for dropping dragged tabs. */
-  groupBounds: { left: number; right: number }[] = [];
+  groupBounds: { left: number; right: number; top: number; bottom: number }[] =
+    [];
+  /** Zen Mode hides the explorer, the toolbar and the breadcrumbs. */
+  zen = false;
+  /** Groups side by side, or stacked, as View: Toggle Vertical/Horizontal Editor Layout. */
+  layout: "horizontal" | "vertical" = "horizontal";
 
   /** @returns the tabs of the active group */
   get tabs() {
@@ -3842,6 +3847,41 @@ export class Workbench {
         action: "selectAllOccurrences",
         label: "Change All Occurrences",
         run: () => this.selectAllOccurrences(),
+      },
+      {
+        action: "splitEditorDown",
+        label: "View: Split Editor Down",
+        run: () => {
+          this.layout = "vertical";
+          this.splitEditor();
+        },
+      },
+      {
+        action: "toggleLayout",
+        label: "View: Toggle Vertical/Horizontal Editor Layout",
+        run: () =>
+          void (this.layout =
+            this.layout === "vertical" ? "horizontal" : "vertical"),
+      },
+      {
+        action: "zenMode",
+        label: "View: Toggle Zen Mode",
+        run: () => void (this.zen = !this.zen),
+      },
+      {
+        action: "toggleMinimap",
+        label: "View: Toggle Minimap",
+        run: () =>
+          this.setSetting("settings.minimap", !this.config.settings.minimap),
+      },
+      {
+        action: "toggleBreadcrumbs",
+        label: "View: Toggle Breadcrumbs",
+        run: () =>
+          this.setSetting(
+            "settings.breadcrumbs",
+            !this.config.settings.breadcrumbs,
+          ),
       },
       {
         action: "outline",

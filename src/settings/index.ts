@@ -548,6 +548,14 @@ export const SETTINGS: SettingSpec[] = [
     },
   ),
   setting(
+    "settings.breadcrumbs",
+    "Workbench",
+    "Appearance",
+    "Breadcrumbs",
+    "Enable/disable navigation breadcrumbs.",
+    "boolean",
+  ),
+  setting(
     "settings.wheelLines",
     "Text Editor",
     "Cursor",

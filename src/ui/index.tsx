@@ -144,6 +144,7 @@ export const App = ({
   const { config, tab, focus, find } = workbench;
   const keys = config.keys;
   const showExplorer =
+    !workbench.zen &&
     config.settings.explorer &&
     width >= spacing.explorerMinWidth + spacing.editorMinWidth + 1;
   const sideWidth = showExplorer
@@ -153,7 +154,7 @@ export const App = ({
       )
     : 0;
   const mainWidth = width - (showExplorer ? sideWidth + 1 : 0);
-  const bodyHeight = Math.max(1, height - 2);
+  const bodyHeight = Math.max(1, height - (workbench.zen ? 0 : 2));
   const findRows = find && tab?.document ? (find.replacing ? 2 : 1) : 0;
   workbench.theme = theme;
 
@@ -239,44 +240,48 @@ export const App = ({
       height={height}
       backgroundColor={theme.surface}
     >
-      <Box height={1} width={width} overflow="hidden">
-        <Box flexShrink={0}>
-          <Text color={palette.accent} bold wrap="truncate">
-            {" codeee   "}
-          </Text>
-        </Box>
-        {tools.map((tool) => (
-          <Clickable key={tool.label} flexShrink={0} onClick={tool.run}>
-            <Text>
-              <Text color={palette.accent} bold>
-                {shortKey(tool.key)}
+      {!workbench.zen ? (
+        <>
+          <Box height={1} width={width} overflow="hidden">
+            <Box flexShrink={0}>
+              <Text color={palette.accent} bold wrap="truncate">
+                {" codeee   "}
               </Text>
-              <Text color={palette.text}> {tool.label}</Text>
-              <Text>{" ".repeat(spacing.toolbarGap)}</Text>
-            </Text>
-          </Clickable>
-        ))}
-        <Box flexGrow={1} />
-        <Text
-          color={status?.error ? palette.danger : palette.textMuted}
-          wrap="truncate-start"
-        >
-          {status ? `${status.text} ` : ""}
-        </Text>
-        {workbench.update ? (
-          <Clickable flexShrink={0} onClick={() => void applyUpdate()}>
+            </Box>
+            {tools.map((tool) => (
+              <Clickable key={tool.label} flexShrink={0} onClick={tool.run}>
+                <Text>
+                  <Text color={palette.accent} bold>
+                    {shortKey(tool.key)}
+                  </Text>
+                  <Text color={palette.text}> {tool.label}</Text>
+                  <Text>{" ".repeat(spacing.toolbarGap)}</Text>
+                </Text>
+              </Clickable>
+            ))}
+            <Box flexGrow={1} />
             <Text
-              backgroundColor={palette.accent}
-              color={palette.accentText}
-              bold
+              color={status?.error ? palette.danger : palette.textMuted}
+              wrap="truncate-start"
             >
-              {" Update "}
+              {status ? `${status.text} ` : ""}
             </Text>
-            <Text> </Text>
-          </Clickable>
-        ) : null}
-      </Box>
-      <Text color={palette.border}>{glyphs.rule.repeat(width)}</Text>
+            {workbench.update ? (
+              <Clickable flexShrink={0} onClick={() => void applyUpdate()}>
+                <Text
+                  backgroundColor={palette.accent}
+                  color={palette.accentText}
+                  bold
+                >
+                  {" Update "}
+                </Text>
+                <Text> </Text>
+              </Clickable>
+            ) : null}
+          </Box>
+          <Text color={palette.border}>{glyphs.rule.repeat(width)}</Text>
+        </>
+      ) : null}
       <Box height={bodyHeight}>
         {explorer}
         {showExplorer ? (
@@ -305,111 +310,135 @@ export const App = ({
             </Text>
           </Clickable>
         ) : null}
-        {workbench.groups.map((group, groupIndex) => {
-          const count = workbench.groups.length;
-          const groupWidth =
-            Math.floor((mainWidth - (count - 1)) / count) +
-            (groupIndex === count - 1 ? (mainWidth - (count - 1)) % count : 0);
-          const activeGroup = groupIndex === workbench.group;
-          const shown = group.tabs[group.active] ?? null;
-          const lines = Math.max(
-            1,
-            tabRows(
-              group.tabs,
-              group.active,
-              groupWidth,
-              theme.glyphs,
-              config.settings.wrapTabs,
-            ).length,
-          );
-          const groupFind = activeGroup ? findRows : 0;
-          const rows = Math.max(1, bodyHeight - 1 - lines - groupFind);
-          if (activeGroup) workbench.view = { rows, columns: groupWidth };
-          const left =
-            (showExplorer ? sideWidth + 1 : 0) +
-            workbench.groups
-              .slice(0, groupIndex)
-              .reduce((total) => total + groupWidth + 1, 0);
-          workbench.groupBounds[groupIndex] = {
-            left,
-            right: left + groupWidth,
-          };
-          return (
-            <Fragment key={groupIndex}>
-              {groupIndex ? (
-                <Text color={palette.border}>
-                  {`${glyphs.divider}\n`.repeat(bodyHeight).trimEnd()}
-                </Text>
-              ) : null}
-              <Box flexDirection="column" width={groupWidth}>
-                <TabStrip
-                  workbench={workbench}
-                  group={groupIndex}
-                  width={groupWidth}
-                  version={version}
-                />
-                <Breadcrumbs
-                  workbench={workbench}
-                  tab={shown}
-                  width={groupWidth}
-                />
-                {groupFind ? (
-                  <FindWidget workbench={workbench} width={groupWidth} />
+        <Box
+          flexDirection={workbench.layout === "vertical" ? "column" : "row"}
+          width={mainWidth}
+          height={bodyHeight}
+        >
+          {workbench.groups.map((group, groupIndex) => {
+            const count = workbench.groups.length;
+            const vertical = workbench.layout === "vertical";
+            const share = (total: number) =>
+              Math.floor((total - (count - 1)) / count) +
+              (groupIndex === count - 1 ? (total - (count - 1)) % count : 0);
+            const groupWidth = vertical ? mainWidth : share(mainWidth);
+            const groupHeight = vertical ? share(bodyHeight) : bodyHeight;
+            const activeGroup = groupIndex === workbench.group;
+            const crumbs =
+              config.settings.breadcrumbs && !workbench.zen ? 1 : 0;
+            const shown = group.tabs[group.active] ?? null;
+            const lines = Math.max(
+              1,
+              tabRows(
+                group.tabs,
+                group.active,
+                groupWidth,
+                theme.glyphs,
+                config.settings.wrapTabs,
+              ).length,
+            );
+            const groupFind = activeGroup ? findRows : 0;
+            const rows = Math.max(1, groupHeight - crumbs - lines - groupFind);
+            if (activeGroup) workbench.view = { rows, columns: groupWidth };
+            const left =
+              (showExplorer ? sideWidth + 1 : 0) +
+              (vertical ? 0 : groupIndex * (groupWidth + 1));
+            const top =
+              (workbench.zen ? 0 : 2) +
+              (vertical ? groupIndex * (groupHeight + 1) : 0);
+            workbench.groupBounds[groupIndex] = {
+              left,
+              right: left + groupWidth,
+              top,
+              bottom: top + groupHeight,
+            };
+            return (
+              <Fragment key={groupIndex}>
+                {groupIndex ? (
+                  <Text color={palette.border}>
+                    {vertical
+                      ? glyphs.rule.repeat(mainWidth)
+                      : `${glyphs.divider}\n`.repeat(bodyHeight).trimEnd()}
+                  </Text>
                 ) : null}
-                {!shown ? (
-                  <Welcome
+                <Box
+                  flexDirection="column"
+                  width={groupWidth}
+                  height={groupHeight}
+                >
+                  <TabStrip
                     workbench={workbench}
+                    group={groupIndex}
                     width={groupWidth}
-                    height={rows}
-                  />
-                ) : shown.kind === "diff" ? (
-                  <DiffView
-                    workbench={workbench}
-                    tab={shown}
-                    width={groupWidth}
-                    height={rows}
                     version={version}
                   />
-                ) : shown.kind === "preview" ? (
-                  <MarkdownView
-                    workbench={workbench}
-                    tab={shown}
-                    width={groupWidth}
-                    height={rows}
-                    version={version}
-                  />
-                ) : shown.kind === "settings" ? (
-                  <SettingsPage
-                    workbench={workbench}
-                    width={groupWidth}
-                    height={rows}
-                    version={version}
-                  />
-                ) : shown.notice ? (
-                  <Box
-                    width={groupWidth}
-                    height={rows}
-                    paddingX={2}
-                    paddingY={1}
-                  >
-                    <Text color={palette.textMuted} wrap="wrap">
-                      {shown.notice}
-                    </Text>
-                  </Box>
-                ) : (
-                  <CodeView
-                    workbench={workbench}
-                    tab={shown}
-                    width={groupWidth}
-                    height={rows}
-                    focused={activeGroup && focus === "editor" && !find?.field}
-                    version={version}
-                  />
-                )}
-              </Box>
-            </Fragment>
-          );
-        })}
+                  {crumbs ? (
+                    <Breadcrumbs
+                      workbench={workbench}
+                      tab={shown}
+                      width={groupWidth}
+                    />
+                  ) : null}
+                  {groupFind ? (
+                    <FindWidget workbench={workbench} width={groupWidth} />
+                  ) : null}
+                  {!shown ? (
+                    <Welcome
+                      workbench={workbench}
+                      width={groupWidth}
+                      height={rows}
+                    />
+                  ) : shown.kind === "diff" ? (
+                    <DiffView
+                      workbench={workbench}
+                      tab={shown}
+                      width={groupWidth}
+                      height={rows}
+                      version={version}
+                    />
+                  ) : shown.kind === "preview" ? (
+                    <MarkdownView
+                      workbench={workbench}
+                      tab={shown}
+                      width={groupWidth}
+                      height={rows}
+                      version={version}
+                    />
+                  ) : shown.kind === "settings" ? (
+                    <SettingsPage
+                      workbench={workbench}
+                      width={groupWidth}
+                      height={rows}
+                      version={version}
+                    />
+                  ) : shown.notice ? (
+                    <Box
+                      width={groupWidth}
+                      height={rows}
+                      paddingX={2}
+                      paddingY={1}
+                    >
+                      <Text color={palette.textMuted} wrap="wrap">
+                        {shown.notice}
+                      </Text>
+                    </Box>
+                  ) : (
+                    <CodeView
+                      workbench={workbench}
+                      tab={shown}
+                      width={groupWidth}
+                      height={rows}
+                      focused={
+                        activeGroup && focus === "editor" && !find?.field
+                      }
+                      version={version}
+                    />
+                  )}
+                </Box>
+              </Fragment>
+            );
+          })}
+        </Box>
       </Box>
       <Overlays workbench={workbench} width={width} height={height} />
     </Box>
@@ -691,7 +720,10 @@ const TabStrip = ({
                       ? workbench.groups.length
                       : workbench.groupBounds.findIndex(
                           (bounds) =>
-                            move.x >= bounds.left && move.x < bounds.right,
+                            move.x >= bounds.left &&
+                            move.x < bounds.right &&
+                            move.y >= bounds.top &&
+                            move.y < bounds.bottom,
                         );
                   if (
                     target >= 0 &&

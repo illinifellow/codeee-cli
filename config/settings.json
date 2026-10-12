@@ -12,6 +12,7 @@
     "bracketPairColorization": true,
     "guides": true,
     "minimap": true,
+    "breadcrumbs": true,
     "wordWrap": false,
     "renderWhitespace": "all",
     "showFoldingControls": "always",
