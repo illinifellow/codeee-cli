@@ -5,15 +5,23 @@
  * settings page and the toolbar message. The screen subscribes and redraws on
  * every change; keys and mouse gestures arrive here as method calls.
  */
+import { spawn } from "node:child_process";
 import {
   basename,
   dirname,
+  extname,
   isAbsolute,
   join,
   relative,
   resolve,
 } from "node:path";
-import { existsSync, renameSync, statSync, type FSWatcher } from "node:fs";
+import {
+  cpSync,
+  existsSync,
+  renameSync,
+  statSync,
+  type FSWatcher,
+} from "node:fs";
 import {
   loadConfig,
   loadDefaults,
@@ -69,6 +77,8 @@ import {
 import {
   blameLine,
   diffLines,
+  inlineDiff,
+  type DiffRow,
   readGitStatus,
   timeAgo,
   type GitStatus,
@@ -93,7 +103,9 @@ export type Focus = "editor" | "explorer" | "settings" | "search";
 /** An editor tab. */
 export interface Tab {
   id: number;
-  kind: "file" | "settings" | "preview";
+  kind: "file" | "settings" | "preview" | "diff";
+  /** The rows of a diff tab. */
+  diff?: DiffRow[];
   /** The Markdown file a preview shows. */
   source?: Tab;
   /** Absolute path; `null` for an untitled file and the settings page. */
@@ -140,6 +152,8 @@ export interface FindState {
   /** Which of its fields has the keyboard; `null` when the editor has it and the widget only stays open. */
   field: "query" | "replacement" | null;
   options: FindOptions;
+  /** Find in Selection: matches only inside this range. */
+  scope?: [Position, Position];
   matches: Match[];
   current: number;
 }
@@ -253,8 +267,24 @@ interface Command {
 
 let nextTabId = 1;
 
+/** Shows a file in the Finder, or the platform's file manager. */
+const revealInFinder = (path: string) => {
+  const [command, args] =
+    process.platform === "darwin"
+      ? ["open", ["-R", path]]
+      : process.platform === "win32"
+        ? ["explorer", [`/select,${path}`]]
+        : ["xdg-open", [dirname(path)]];
+  spawn(command, args, { detached: true, stdio: "ignore" })
+    .on("error", () => undefined)
+    .unref();
+};
+
 /** How often git's status is read again, for commits and staging made elsewhere (the watcher skips `.git`). */
 const GIT_POLL_MS = 3000;
+
+/** A cursor move farther than this many lines counts as a jump for Go Back. */
+const NAVIGATION_LINES = 10;
 
 /** How long after the last edit a file's unsaved text is backed up. */
 const BACKUP_DELAY_MS = 1000;
@@ -411,7 +441,7 @@ export class Workbench {
   };
   status: Status | null = null;
   /** Which view the side bar shows. */
-  side: "explorer" | "search" = "explorer";
+  side: "explorer" | "search" | "outline" = "explorer";
   search: SearchView = {
     query: field(),
     replacement: field(),
@@ -962,14 +992,26 @@ export class Workbench {
    * @param index the tab
    * @returns once formatted; a failure is shown in the toolbar
    */
-  async formatDocument(index = this.active) {
+  async formatDocument(index = this.active, selection = false) {
     const tab = this.tabs[index];
     const document = tab?.document;
     if (!tab || !document) return;
     const path = tab.path ?? join(this.root, tab.title);
     const version = document.version;
+    const offset = (position: Position) =>
+      document.lines
+        .slice(0, position.line)
+        .reduce((total, line) => total + line.length + document.eol.length, 0) +
+      position.column;
+    const [start, end] = document.range();
     try {
-      const formatted = await formatText(path, document.text());
+      const formatted = await formatText(
+        path,
+        document.text(),
+        selection && document.hasSelection
+          ? [offset(start), offset(end)]
+          : undefined,
+      );
       if (document.version !== version) return;
       if (document.setText(formatted)) this.afterEdit();
     } catch (error) {
@@ -1203,6 +1245,35 @@ export class Workbench {
     });
   }
 
+  /** A file or folder copied in the explorer, to paste into another folder. */
+  copiedEntry: string | null = null;
+
+  /**
+   * Pastes the copied file or folder into a folder, naming the copy `name copy.ext` when the name is taken, as VS Code.
+   * @param folder where to
+   */
+  pasteEntry(folder: string) {
+    const source = this.copiedEntry;
+    if (!source || !existsSync(source)) return;
+    const extension = extname(source);
+    const stem = basename(source, extension);
+    let target = join(folder, basename(source));
+    for (let count = 1; existsSync(target); count++)
+      target = join(
+        folder,
+        `${stem} copy${count > 1 ? ` ${count}` : ""}${extension}`,
+      );
+    try {
+      cpSync(source, target, { recursive: true });
+    } catch (error) {
+      return this.say(`Failed to paste: ${(error as Error).message}`, true);
+    }
+    this.tree.expanded.add(folder);
+    this.tree.refresh();
+    this.files = null;
+    this.revealInExplorer(target);
+  }
+
   /** The explorer row a drag is over. */
   dropTarget: string | null = null;
 
@@ -1284,6 +1355,86 @@ export class Workbench {
     });
   }
 
+  /** Puts a cursor on every occurrence of the selection or the word at the cursor, as Change All Occurrences. */
+  selectAllOccurrences() {
+    this.withDocument((document) => {
+      if (!document.addNextOccurrence()) return;
+      while (document.extras.length < 10000 && document.addNextOccurrence());
+    });
+  }
+
+  /**
+   * Opens a tab's context menu at a screen cell, as VS Code's tab menu.
+   * @param group the tab's group
+   * @param index the tab
+   */
+  tabMenu(group: number, index: number, x: number, y: number) {
+    this.focusGroup(group);
+    const tab = this.tabs[index];
+    if (!tab) return;
+    const closeWhere = (keep: (other: Tab, position: number) => boolean) => {
+      for (let position = this.tabs.length - 1; position >= 0; position--)
+        if (!keep(this.tabs[position], position)) this.close(position);
+    };
+    this.menu = {
+      x,
+      y,
+      cursor: 0,
+      items: [
+        {
+          label: "Close",
+          key: this.config.keys.close,
+          run: () => this.close(index),
+        },
+        {
+          label: "Close Others",
+          run: () => closeWhere((other) => other === tab),
+        },
+        {
+          label: "Close to the Right",
+          run: () => closeWhere((_other, position) => position <= index),
+        },
+        {
+          label: "Close Saved",
+          run: () => closeWhere((other) => Boolean(other.document?.dirty)),
+        },
+        { label: "Close All", run: () => closeWhere(() => false) },
+        ...(tab.path
+          ? [
+              {
+                label: "Copy Path",
+                separator: true,
+                run: () => void this.copy(tab.path!),
+              },
+              {
+                label: "Copy Relative Path",
+                run: () => void this.copy(relativeTo(this.root, tab.path!)),
+              },
+              {
+                label: "Reveal in Finder",
+                run: () => revealInFinder(tab.path!),
+              },
+              {
+                label: "Reveal in Explorer View",
+                run: () =>
+                  this.commands()
+                    .find((command) => command.action === "revealActive")
+                    ?.run(),
+              },
+            ]
+          : []),
+        {
+          label: "Keep Open",
+          separator: true,
+          run: () => void (tab.preview = false),
+        },
+        { label: "Split Right", run: () => this.splitEditor() },
+      ],
+    };
+    this.active = index;
+    this.changed();
+  }
+
   /** Opens the explorer's context menu for a row at a screen cell. */
   explorerMenu(index: number, x: number, y: number) {
     const row = this.explorerRows()[index];
@@ -1308,6 +1459,29 @@ export class Workbench {
           label: "Copy Relative Path",
           run: () => void this.copy(relativeTo(this.root, row.path)),
         },
+        { label: "Reveal in Finder", run: () => revealInFinder(row.path) },
+        ...(row.folder
+          ? [
+              {
+                label: "Find in Folder...",
+                run: () => {
+                  this.search.include = field(
+                    `${relativeTo(this.root, row.path)}/**`,
+                  );
+                  this.search.details = true;
+                  this.openSearch(false);
+                },
+              },
+            ]
+          : []),
+        {
+          label: "Copy",
+          separator: true,
+          run: () => void (this.copiedEntry = row.path),
+        },
+        ...(this.copiedEntry
+          ? [{ label: "Paste", run: () => this.pasteEntry(folder) }]
+          : []),
         {
           label: "Rename...",
           key: "F2",
@@ -1502,6 +1676,31 @@ export class Workbench {
       y,
       cursor: 0,
       items: [
+        {
+          label: "Go to Definition",
+          key: "f12",
+          run: () => void this.goToDefinition(),
+        },
+        {
+          label: "Go to Symbol...",
+          key: key("goToSymbol"),
+          run: () => this.openPalette("@"),
+        },
+        {
+          label: "Rename Symbol",
+          key: "f2",
+          separator: true,
+          run: () => this.renameSymbol(),
+        },
+        {
+          label: "Change All Occurrences",
+          run: () => this.selectAllOccurrences(),
+        },
+        {
+          label: "Format Document",
+          key: key("format"),
+          run: () => void this.formatDocument(),
+        },
         {
           label: "Go to Bracket",
           run: () => this.withDocument((document) => document.jumpToBracket()),
@@ -1912,6 +2111,111 @@ export class Workbench {
     this.restart();
   }
 
+  /** Where the cursor was at each jump, for Go Back and Go Forward. */
+  private back: { path: string; line: number; column: number }[] = [];
+  private forward: { path: string; line: number; column: number }[] = [];
+  private lastLocation: { path: string; line: number; column: number } | null =
+    null;
+  private navigating = false;
+
+  /**
+   * Returns to where the cursor was before the last jump, or goes forward again, as VS Code's Go Back and Go Forward.
+   * @param step -1 back, 1 forward
+   */
+  navigate(step: -1 | 1) {
+    const [from, to] =
+      step < 0 ? [this.back, this.forward] : [this.forward, this.back];
+    const target = from.pop();
+    if (!target) return;
+    if (this.lastLocation) to.push(this.lastLocation);
+    this.navigating = true;
+    if (target.path)
+      this.open(target.path, { line: target.line, column: target.column });
+    this.navigating = false;
+    this.changed();
+  }
+
+  /** Opens the changes of the active file against its last commit in a tab, as VS Code's Open Changes. */
+  async openChanges() {
+    const source = this.tab?.kind === "diff" ? this.tab.source : this.tab;
+    if (!source?.path || !source.document)
+      return this.say("Open Changes needs a file in a git repository");
+    const rows = await inlineDiff(source.path, source.document.text());
+    if (!rows) return this.say(`${source.title} is not tracked by git`);
+    const existing = this.tabs.findIndex(
+      (tab) => tab.kind === "diff" && tab.source === source,
+    );
+    if (existing >= 0) {
+      this.tabs[existing].diff = rows;
+      return this.activate(existing);
+    }
+    const tab: Tab = {
+      id: nextTabId++,
+      kind: "diff",
+      source,
+      diff: rows,
+      path: null,
+      title: `${source.title} (Working Tree)`,
+      document: null,
+      highlight: null,
+      language: null,
+      scrollTop: 0,
+      scrollLeft: 0,
+      notice: null,
+      modified: 0,
+    };
+    this.tabs.splice(this.active + 1, 0, tab);
+    this.active++;
+    this.focus = "editor";
+    this.changed();
+  }
+
+  /** Lists the ESLint problems of every open file in Quick Open, errors first, as VS Code's Problems view. */
+  showProblems() {
+    const seen = new Set<Document>();
+    const entries = this.allTabs().flatMap((tab) => {
+      if (!tab.document || !tab.path || seen.has(tab.document)) return [];
+      seen.add(tab.document);
+      return (tab.diagnostics ?? []).map((problem) => ({ tab, problem }));
+    });
+    entries.sort((a, b) =>
+      a.problem.severity === b.problem.severity
+        ? 0
+        : a.problem.severity === "error"
+          ? -1
+          : 1,
+    );
+    this.palette = {
+      field: field(),
+      cursor: 0,
+      placeholder: entries.length
+        ? "Filter problems"
+        : "No problems have been detected in the workspace.",
+      items: [],
+    };
+    this.paletteSource = (query) =>
+      entries.flatMap(({ tab, problem }) => {
+        const label = `${problem.severity === "error" ? "✖" : "⚠"} ${problem.message}`;
+        const match = fuzzyMatch(label, query);
+        return match
+          ? [
+              {
+                label,
+                detail: `${relativeTo(this.root, tab.path!)} ${problem.line + 1}:${problem.start + 1}${problem.rule ? `  ${problem.rule}` : ""}`,
+                positions: match.positions,
+                run: () =>
+                  this.open(tab.path!, {
+                    line: problem.line,
+                    column: problem.start,
+                  }),
+              },
+            ]
+          : [];
+      });
+    this.filterPalette();
+    this.changed();
+  }
+
   /** Opens the most recently closed tab again. */
   reopenClosed() {
     const path = this.closed.pop();
@@ -2163,6 +2467,24 @@ export class Workbench {
     const tab = this.tab;
     const document = tab?.document;
     if (!tab || !document) return;
+    const here = {
+      path: tab.path ?? "",
+      line: document.cursor.line,
+      column: document.cursor.column,
+    };
+    const last = this.lastLocation;
+    if (
+      center &&
+      last &&
+      !this.navigating &&
+      (last.path !== here.path ||
+        Math.abs(last.line - here.line) > NAVIGATION_LINES)
+    ) {
+      this.back.push(last);
+      if (this.back.length > 50) this.back.shift();
+      this.forward = [];
+    }
+    this.lastLocation = here;
     const rows = this.view.rows;
     const margin = Math.min(
       this.theme.spacing.scrollMargin,
@@ -2396,6 +2718,15 @@ export class Workbench {
       return;
     }
     find.matches = document.find(find.query.value, find.options);
+    const scope = find.scope;
+    if (scope)
+      find.matches = find.matches.filter(
+        (match) =>
+          (match.line > scope[0].line ||
+            (match.line === scope[0].line && match.start >= scope[0].column)) &&
+          (match.line < scope[1].line ||
+            (match.line === scope[1].line && match.end <= scope[1].column)),
+      );
     const { line, column } = document.range()[0];
     const after = find.matches.findIndex(
       (match) =>
@@ -2497,6 +2828,20 @@ export class Workbench {
     this.afterEdit();
   }
 
+  /** Limits the find to the selection, or lifts the limit, as the find widget's Find in Selection (⌥L). */
+  toggleFindInSelection() {
+    const find = this.find;
+    const document = this.tab?.document;
+    if (!find || !document) return;
+    find.scope = find.scope
+      ? undefined
+      : document.hasSelection
+        ? document.range()
+        : undefined;
+    this.updateMatches(false);
+    this.changed();
+  }
+
   /** Flips a find option. */
   toggleFindOption(option: keyof FindOptions) {
     if (!this.find) return;
@@ -2515,6 +2860,7 @@ export class Workbench {
     if (binding === "alt+c") return this.toggleFindOption("caseSensitive");
     if (binding === "alt+w") return this.toggleFindOption("wholeWord");
     if (binding === "alt+r") return this.toggleFindOption("regex");
+    if (binding === "alt+l") return this.toggleFindInSelection();
     if (key.name === "tab") {
       find.field =
         find.replacing && find.field === "query" ? "replacement" : "query";
@@ -2592,6 +2938,9 @@ export class Workbench {
     }
     if (value.startsWith(">")) {
       const query = value.slice(1).trim();
+      const recent = this.recentCommands;
+      const rank = (action: string) =>
+        recent.includes(action) ? recent.indexOf(action) : recent.length;
       palette.items = this.commands()
         .flatMap((command) => {
           const match = fuzzyMatch(command.label, query);
@@ -2602,15 +2951,25 @@ export class Workbench {
             ? [
                 {
                   label: command.label,
-                  detail: key,
+                  detail:
+                    recent.includes(command.action) && !query
+                      ? `recently used${key ? `  ${key}` : ""}`
+                      : key,
                   positions: match.positions,
-                  run: command.run,
+                  run: () => {
+                    this.recentCommands = [
+                      command.action,
+                      ...recent.filter((action) => action !== command.action),
+                    ].slice(0, 10);
+                    command.run();
+                  },
                   score: match.score,
+                  rank: rank(command.action),
                 },
               ]
             : [];
         })
-        .sort((a, b) => b.score - a.score);
+        .sort((a, b) => (query ? b.score - a.score : a.rank - b.rank));
       return;
     }
     const lineMatch =
@@ -2697,6 +3056,9 @@ export class Workbench {
   /** A list Quick Open shows instead of files, for language and indentation pickers; cleared when it closes. */
   private paletteSource: ((query: string) => PaletteItem[]) | null = null;
 
+  /** Commands run from Quick Open, newest first, listed first next time, as VS Code's recently used. */
+  private recentCommands: string[] = [];
+
   /** Runs a Quick Open entry. */
   choosePalette(index: number) {
     const item = this.palette?.items[index];
@@ -2732,7 +3094,42 @@ export class Workbench {
 
   /** @returns the settings page's rows for its search and category */
   settingsRows(): PageRow[] {
-    return pageRows(this.settingsView.category, this.settingsView.search.value);
+    const search = this.settingsView.search.value;
+    if (!search.includes("@modified"))
+      return pageRows(this.settingsView.category, search);
+    const defaults = this.defaults();
+    const rows = pageRows(
+      this.settingsView.category,
+      search.replace("@modified", "").trim(),
+    );
+    const modified = (row: PageRow) =>
+      row.kind === "setting" &&
+      JSON.stringify(valueAt(this.config, row.spec.key)) !==
+        JSON.stringify(valueAt(defaults, row.spec.key));
+    return rows.filter((row, index) =>
+      row.kind === "setting"
+        ? modified(row)
+        : rows
+            .slice(index + 1)
+            .find(
+              (next) =>
+                next.kind === "setting" ||
+                (next.kind === "heading" && next.level <= row.level),
+            ) &&
+          rows
+            .slice(index + 1)
+            .some(
+              (next, offset) =>
+                next.kind === "setting" &&
+                modified(next) &&
+                !rows
+                  .slice(index + 1, index + 1 + offset)
+                  .some(
+                    (between) =>
+                      between.kind === "heading" && between.level <= row.level,
+                  ),
+            ),
+    );
   }
 
   /** @returns the settings on the page, in order */
@@ -3084,6 +3481,88 @@ export class Workbench {
     this.changed();
   }
 
+  /** Opens the context menu of a search result row: replace or dismiss it, copy it, as VS Code's. */
+  searchMenu(index: number, x: number, y: number) {
+    const row = this.searchRows()[index];
+    if (!row) return;
+    this.search.cursor = index;
+    const view = this.search;
+    const dismiss = () => {
+      if (row.kind === "file")
+        view.results = view.results.filter((result) => result !== row.result);
+      else {
+        row.result.matches = row.result.matches.filter(
+          (match) => match !== row.match,
+        );
+        if (!row.result.matches.length)
+          view.results = view.results.filter((result) => result !== row.result);
+      }
+      this.changed();
+    };
+    this.menu = {
+      x,
+      y,
+      cursor: 0,
+      items: [
+        ...(view.replacing
+          ? [
+              {
+                label:
+                  row.kind === "file" ? "Replace All in This File" : "Replace",
+                run: () => {
+                  void this.replaceInFolder([
+                    row.kind === "file"
+                      ? row.result
+                      : { path: row.result.path, matches: [row.match] },
+                  ]);
+                },
+              },
+            ]
+          : []),
+        { label: "Dismiss", run: dismiss },
+        {
+          label: "Copy",
+          separator: true,
+          run: () =>
+            void this.copy(
+              row.kind === "file" ? row.result.path : row.match.text.trim(),
+            ),
+        },
+        { label: "Copy Path", run: () => void this.copy(row.result.path) },
+        {
+          label: "Copy All",
+          run: () =>
+            void this.copy(
+              view.results
+                .map((result) =>
+                  [
+                    result.path,
+                    ...result.matches.map(
+                      (match) => `  ${match.line + 1}: ${match.text.trim()}`,
+                    ),
+                  ].join("\n"),
+                )
+                .join("\n"),
+            ),
+        },
+        {
+          label: "Collapse All",
+          separator: true,
+          run: () =>
+            view.results.forEach((result) => view.collapsed.add(result.path)),
+        },
+        {
+          label: "Clear Search Results",
+          run: () => {
+            view.results = [];
+            view.query = field();
+          },
+        },
+      ],
+    };
+    this.changed();
+  }
+
   /** Asks, as VS Code does, then replaces every result. */
   confirmReplaceAll() {
     const view = this.search;
@@ -3360,6 +3839,65 @@ export class Workbench {
         run: () => this.pickIndentation(),
       },
       {
+        action: "selectAllOccurrences",
+        label: "Change All Occurrences",
+        run: () => this.selectAllOccurrences(),
+      },
+      {
+        action: "outline",
+        label: "View: Show Outline",
+        run: () => {
+          this.side = this.side === "outline" ? "explorer" : "outline";
+          if (!this.config.settings.explorer)
+            this.setSetting("settings.explorer", true);
+        },
+      },
+      {
+        action: "openChanges",
+        label: "Git: Open Changes",
+        run: () => void this.openChanges(),
+      },
+      {
+        action: "problems",
+        label: "View: Show Problems",
+        run: () => this.showProblems(),
+      },
+      { action: "goBack", label: "Go Back", run: () => this.navigate(-1) },
+      { action: "goForward", label: "Go Forward", run: () => this.navigate(1) },
+      {
+        action: "formatSelection",
+        label: "Format Selection",
+        run: () => void this.formatDocument(this.active, true),
+      },
+      {
+        action: "blockComment",
+        label: "Toggle Block Comment",
+        run: () =>
+          this.withDocument((document) => {
+            const comment = commentOf(this.tab!.language);
+            const pair: [string, string] =
+              comment && "block" in comment ? comment.block : ["/*", "*/"];
+            const [start, end] = document.range();
+            const text = document.selectedText();
+            const trimmed = text.trim();
+            const next =
+              trimmed.startsWith(pair[0]) && trimmed.endsWith(pair[1])
+                ? text
+                    .replace(pair[0], "")
+                    .replace(
+                      new RegExp(
+                        `${pair[1].replace(/[*/]/g, "\\$&")}(?![\\s\\S]*${pair[1].replace(/[*/]/g, "\\$&")})`,
+                      ),
+                      "",
+                    )
+                    .replace(/^ /, "")
+                    .replace(/ $/, "")
+                : `${pair[0]} ${text} ${pair[1]}`;
+            const after = document.replace(start, end, next, "edit");
+            document.select(start, after);
+          }),
+      },
+      {
         action: "addNextOccurrence",
         label: "Add Selection To Next Find Match",
         run: () =>
@@ -3566,7 +4104,7 @@ export class Workbench {
       else if (this.focus === "explorer") this.explorerKey(key);
       else if (this.focus === "search") this.searchKey(key);
       else if (this.focus === "settings") this.settingsKey(key);
-      else if (this.tab?.kind === "preview") {
+      else if (this.tab?.kind === "preview" || this.tab?.kind === "diff") {
         const step = {
           up: -1,
           down: 1,

@@ -179,6 +179,9 @@ export const SearchView = ({
           height={1}
           width={width}
           onClick={() => workbench.openSearchRow(index, true)}
+          onRightClick={(event) =>
+            workbench.searchMenu(index, event.x, event.y)
+          }
         >
           <Text backgroundColor={background}>
             <Text color={palette.textMuted}>
@@ -219,6 +222,7 @@ export const SearchView = ({
         height={1}
         width={width}
         onClick={() => workbench.openSearchRow(index)}
+        onRightClick={(event) => workbench.searchMenu(index, event.x, event.y)}
       >
         <Text backgroundColor={background}>
           <Text>{"     "}</Text>

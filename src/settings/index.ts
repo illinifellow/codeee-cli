@@ -136,6 +136,19 @@ const KEYS: [string, string, string, string][] = [
     "Copy the selected lines above themselves.",
   ],
   [
+    "goBack",
+    "Go",
+    "Go Back",
+    "Return to where the cursor was before the last jump.",
+  ],
+  ["goForward", "Go", "Go Forward", "Go forward again after Go Back."],
+  [
+    "blockComment",
+    "Edit",
+    "Toggle Block Comment",
+    "Wrap the selection in a block comment, or unwrap it.",
+  ],
+  [
     "reopenClosed",
     "View",
     "Reopen Closed Editor",

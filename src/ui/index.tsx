@@ -24,7 +24,9 @@ import { availableUpdate, installUpdate } from "@/update";
 import type { Tab, Workbench } from "@/workbench";
 import { CodeView } from "./editor";
 import { stickyLines } from "@/symbols";
+import { DiffView } from "./diff";
 import { MarkdownView } from "./markdown";
+import { OutlineView } from "./outline";
 import { SearchView } from "./search";
 import { SettingsPage } from "./settings";
 import { useTheme } from "./theme";
@@ -80,12 +82,14 @@ export const FieldText = ({
     <Text backgroundColor={palette.field} color={palette.text}>
       {before}
       <Text backgroundColor={palette.cursor} color={palette.cursorText}>
-        {under}
+        {!state.value && placeholder ? placeholder[0] : under}
       </Text>
       {after}
-      {!state.value && placeholder
-        ? fit(placeholder.slice(1), rest)
-        : " ".repeat(rest)}
+      {!state.value && placeholder ? (
+        <Text color={palette.textMuted}>{fit(placeholder.slice(1), rest)}</Text>
+      ) : (
+        " ".repeat(rest)
+      )}
     </Text>
   );
 };
@@ -204,7 +208,14 @@ export const App = ({
     }
   };
 
-  const explorer = !showExplorer ? null : workbench.side === "search" ? (
+  const explorer = !showExplorer ? null : workbench.side === "outline" ? (
+    <OutlineView
+      workbench={workbench}
+      width={sideWidth}
+      height={bodyHeight}
+      version={version}
+    />
+  ) : workbench.side === "search" ? (
     <SearchView
       workbench={workbench}
       width={sideWidth}
@@ -350,6 +361,14 @@ export const App = ({
                     workbench={workbench}
                     width={groupWidth}
                     height={rows}
+                  />
+                ) : shown.kind === "diff" ? (
+                  <DiffView
+                    workbench={workbench}
+                    tab={shown}
+                    width={groupWidth}
+                    height={rows}
+                    version={version}
                   />
                 ) : shown.kind === "preview" ? (
                   <MarkdownView
@@ -653,6 +672,13 @@ const TabStrip = ({
                   workbench.focusGroup(group);
                   workbench.activate(index);
                 }}
+                onRightClick={(event) =>
+                  workbench.tabMenu(group, index, event.x, event.y)
+                }
+                onMiddleClick={() => {
+                  workbench.focusGroup(group);
+                  workbench.close(index);
+                }}
                 onPress={() => (move) => {
                   if (
                     move.kind !== "up" ||
@@ -748,9 +774,21 @@ const Breadcrumbs = ({
     );
   }
   return (
-    <Text color={palette.textMuted}>
-      {fit(parts.length ? ` ${parts.join(" › ")}` : "", width)}
-    </Text>
+    <Clickable
+      height={1}
+      width={width}
+      onClick={() => {
+        const group = workbench.groups.findIndex(
+          (entry) => tab && entry.tabs.includes(tab),
+        );
+        if (group >= 0) workbench.focusGroup(group);
+        if (tab?.document) workbench.openPalette("@");
+      }}
+    >
+      <Text color={palette.textMuted}>
+        {fit(parts.length ? ` ${parts.join(" › ")}` : "", width)}
+      </Text>
+    </Clickable>
   );
 };
 
@@ -816,6 +854,9 @@ const FindWidget = ({
         )}
         {option(glyphs.regex, find.options.regex, () =>
           workbench.toggleFindOption("regex"),
+        )}
+        {option("≡", Boolean(find.scope), () =>
+          workbench.toggleFindInSelection(),
         )}
         <Text
           color={

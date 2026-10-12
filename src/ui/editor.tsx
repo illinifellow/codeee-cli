@@ -832,6 +832,11 @@ export const CodeView = memo(
             workbench.changed();
             return;
           }
+          if (event.ctrl) {
+            document.setCursor(position);
+            void workbench.goToDefinition();
+            return;
+          }
           if (event.alt) {
             document.extras.push({
               anchor: document.anchor ?? document.cursor,

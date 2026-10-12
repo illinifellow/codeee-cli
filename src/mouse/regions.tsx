@@ -17,6 +17,8 @@ interface MouseHandlers {
   onClick?: (event: LocalMouseEvent) => void;
   onDoubleClick?: (event: LocalMouseEvent) => void;
   onRightClick?: (event: LocalMouseEvent) => void;
+  /** A middle press, as on a tab to close it. */
+  onMiddleClick?: (event: LocalMouseEvent) => void;
   /** `step` is -1 for wheel up or left, 1 for down or right; `event.kind` tells the axis. */
   onWheel?: (step: number, event: LocalMouseEvent) => void;
   /**
@@ -74,6 +76,7 @@ export const Clickable = ({
   onClick,
   onDoubleClick,
   onRightClick,
+  onMiddleClick,
   onWheel,
   onPress,
   modal = false,
@@ -81,7 +84,14 @@ export const Clickable = ({
 }: BoxProps & MouseHandlers & { children?: ReactNode; modal?: boolean }) => {
   const node = useRef<DOMElement | null>(null);
   const handlers = useRef<MouseHandlers>({});
-  handlers.current = { onClick, onDoubleClick, onRightClick, onWheel, onPress };
+  handlers.current = {
+    onClick,
+    onDoubleClick,
+    onRightClick,
+    onMiddleClick,
+    onWheel,
+    onPress,
+  };
   useEffect(() => {
     const target: Target = { node, handlers, modal };
     targets.add(target);
@@ -200,6 +210,10 @@ export const dispatchMouse = (event: MouseEvent) => {
   if (event.button === "right") {
     const hit = pick(event, (handlers) => handlers.onRightClick);
     return hit?.handlers.onRightClick?.(hit.event);
+  }
+  if (event.button === "middle") {
+    const hit = pick(event, (handlers) => handlers.onMiddleClick);
+    return hit?.handlers.onMiddleClick?.(hit.event);
   }
   if (event.button !== "left") return;
   const press = pick(event, (handlers) => handlers.onPress);

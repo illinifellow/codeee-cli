@@ -53,14 +53,22 @@ export const findPrettier = (path: string): string | null => {
  * Formats text as Prettier formats the file.
  * @param path the file, for the parser, configuration and `.prettierignore`
  * @param text the current contents
+ * @param range only format the code within these character offsets, as Format Selection
  * @returns the formatted text; rejects with Prettier's own message when it cannot parse the file or is not found
  */
-export const formatText = (path: string, text: string) =>
+export const formatText = (
+  path: string,
+  text: string,
+  range?: [number, number],
+) =>
   new Promise<string>((resolve, reject) => {
     const script = findPrettier(path);
+    const extra = range
+      ? ["--range-start", String(range[0]), "--range-end", String(range[1])]
+      : [];
     const [command, args] = script
-      ? [process.execPath, [script, "--stdin-filepath", path]]
-      : ["prettier", ["--stdin-filepath", path]];
+      ? [process.execPath, [script, "--stdin-filepath", path, ...extra]]
+      : ["prettier", ["--stdin-filepath", path, ...extra]];
     const child = execFile(
       command,
       args,
