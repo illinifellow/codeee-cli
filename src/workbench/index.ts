@@ -1274,86 +1274,109 @@ export class Workbench {
 
   /** Asks for a name and creates a file there, then opens it. */
   newFileInExplorer(folder = this.targetFolder()) {
-    this.ask({
-      title: "New File",
-      message: `In ${relativeTo(this.root, folder) || basename(this.root)}`,
-      input: field(),
-      buttons: [
-        {
-          label: "Create",
-          primary: true,
-          run: (name) => {
-            const problem = nameProblem(folder, name);
-            if (problem) return problem;
-            const path = createFile(folder, name);
-            this.tree.expanded.add(folder);
-            this.tree.refresh();
-            this.files = null;
-            this.open(path);
-          },
-        },
-        { label: "Cancel", run: () => undefined },
-      ],
+    this.inlineInput({
+      kind: "file",
+      folder: folder,
+      path: null,
+      field: field("", true),
+      commit: (name) => {
+        const problem = nameProblem(folder, name);
+        if (problem) return problem;
+        const path = createFile(folder, name);
+        this.tree.expanded.add(folder);
+        this.tree.refresh();
+        this.files = null;
+        this.open(path);
+      },
     });
   }
 
   /** Asks for a name and creates a folder there. */
   newFolderInExplorer(folder = this.targetFolder()) {
-    this.ask({
-      title: "New Folder",
-      message: `In ${relativeTo(this.root, folder) || basename(this.root)}`,
-      input: field(),
-      buttons: [
-        {
-          label: "Create",
-          primary: true,
-          run: (name) => {
-            const problem = nameProblem(folder, name);
-            if (problem) return problem;
-            const path = createFolder(folder, name);
-            this.tree.expanded.add(folder);
-            this.tree.refresh();
-            this.revealInExplorer(path);
-            this.focus = "explorer";
-          },
-        },
-        { label: "Cancel", run: () => undefined },
-      ],
+    this.inlineInput({
+      kind: "folder",
+      folder: folder,
+      path: null,
+      field: field("", true),
+      commit: (name) => {
+        const problem = nameProblem(folder, name);
+        if (problem) return problem;
+        const path = createFolder(folder, name);
+        this.tree.expanded.add(folder);
+        this.tree.refresh();
+        this.revealInExplorer(path);
+        this.focus = "explorer";
+      },
     });
   }
 
   /** Asks for a new name and renames an entry; open tabs follow it. */
   renameInExplorer(path: string) {
-    this.ask({
-      title: "Rename",
-      message: relativeTo(this.root, path),
-      input: field(basename(path)),
-      buttons: [
-        {
-          label: "Rename",
-          primary: true,
-          run: (name) => {
-            if (name.trim() === basename(path)) return;
-            const problem = nameProblem(dirname(path), name);
-            if (problem) return problem;
-            const target = renameEntry(path, name);
-            for (const tab of this.allTabs())
-              if (
-                tab.path &&
-                (tab.path === path || tab.path.startsWith(`${path}/`))
-              ) {
-                tab.path = target + tab.path.slice(path.length);
-                tab.title = basename(tab.path);
-              }
-            this.tree.refresh();
-            this.files = null;
-            this.revealInExplorer(target);
-            this.saveSession();
-          },
-        },
-        { label: "Cancel", run: () => undefined },
-      ],
+    this.inlineInput({
+      kind: "rename",
+      folder: dirname(path),
+      path: path,
+      field: field(basename(path), true),
+      commit: (name) => {
+        if (name.trim() === basename(path)) return;
+        const problem = nameProblem(dirname(path), name);
+        if (problem) return problem;
+        const target = renameEntry(path, name);
+        for (const tab of this.allTabs())
+          if (
+            tab.path &&
+            (tab.path === path || tab.path.startsWith(`${path}/`))
+          ) {
+            tab.path = target + tab.path.slice(path.length);
+            tab.title = basename(tab.path);
+          }
+        this.tree.refresh();
+        this.files = null;
+        this.revealInExplorer(target);
+        this.saveSession();
+      },
     });
+  }
+
+  /** The name being typed in the explorer for a new file or folder, or a rename, as VS Code edits names in the tree. */
+  explorerInput: {
+    kind: "file" | "folder" | "rename";
+    folder: string;
+    path: string | null;
+    field: Field;
+    commit: (name: string) => string | void;
+  } | null = null;
+
+  /** Opens the name field in the explorer tree, revealing where the entry goes. */
+  private inlineInput(input: NonNullable<Workbench["explorerInput"]>) {
+    if (!this.config.settings.explorer)
+      this.setSetting("settings.explorer", true);
+    this.side = "explorer";
+    this.focus = "explorer";
+    if (input.folder !== this.root) {
+      this.tree.expanded.add(input.folder);
+      this.tree.reveal(join(input.folder, "x"));
+    }
+    this.explorerInput = input;
+    this.changed();
+  }
+
+  private explorerInputKey(key: KeyEvent) {
+    const input = this.explorerInput!;
+    if (key.name === "escape") {
+      this.explorerInput = null;
+      return;
+    }
+    if (key.name === "enter") {
+      const error = input.field.value.trim()
+        ? input.commit(input.field.value)
+        : undefined;
+      if (typeof error === "string") return this.say(error, true);
+      this.explorerInput = null;
+      return;
+    }
+    const next = editField(input.field, key);
+    if (next) input.field = next;
   }
 
   /** A file or folder copied in the explorer, to paste into another folder. */
@@ -4992,6 +5015,7 @@ export class Workbench {
    */
   key(key: KeyEvent) {
     if (this.dialog) this.dialogKey(key);
+    else if (this.explorerInput) this.explorerInputKey(key);
     else if (
       this.focus === "settings" &&
       this.settingsView.editing?.key.startsWith("keys.")
