@@ -8,7 +8,7 @@
  */
 import { readFile, writeFile } from "node:fs/promises";
 import { relative, sep } from "node:path";
-import type { FindOptions } from "@/buffer";
+import { preserveCase, type FindOptions } from "@/buffer";
 import { walkFiles } from "@/files";
 
 /** One match in a file. */
@@ -173,6 +173,7 @@ export const replaceInLine = (
   matches: { start: number; end: number }[],
   replacement: string,
   pattern: RegExp | null,
+  keepCase = false,
 ) => {
   let result = text;
   for (const match of [...matches].sort((a, b) => b.start - a.start)) {
@@ -183,7 +184,8 @@ export const replaceInLine = (
           replacement,
         )
       : replacement;
-    result = result.slice(0, match.start) + value + result.slice(match.end);
+    const final = keepCase ? preserveCase(found, value) : value;
+    result = result.slice(0, match.start) + final + result.slice(match.end);
   }
   return result;
 };
@@ -199,6 +201,7 @@ export const replaceInFile = async (
   result: FileResult,
   replacement: string,
   pattern: RegExp | null,
+  keepCase = false,
 ) => {
   const text = await readFile(result.path, "utf8");
   const eol = text.includes("\r\n") ? "\r\n" : "\n";
@@ -209,7 +212,13 @@ export const replaceInFile = async (
     byLine.set(match.line, [...(byLine.get(match.line) ?? []), match]);
   for (const [line, matches] of byLine) {
     if (lines[line] !== matches[0].text) continue;
-    lines[line] = replaceInLine(lines[line], matches, replacement, pattern);
+    lines[line] = replaceInLine(
+      lines[line],
+      matches,
+      replacement,
+      pattern,
+      keepCase,
+    );
     count += matches.length;
   }
   await writeFile(result.path, lines.join(eol));

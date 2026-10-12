@@ -53,16 +53,20 @@ describe("auto-indent and brackets", () => {
     expect(document.cursor).toEqual({ line: 1, column: 2 });
   });
 
-  it("closes a bracket, steps over a typed closer, and deletes an empty pair with one backspace", () => {
+  it("closes a bracket, steps over the closer it typed, and deletes a pair it typed with one backspace", () => {
     const document = open("");
     document.type("(");
     expect(document.text()).toBe("()");
     document.type(")");
     expect(document.text()).toBe("()");
     expect(document.cursor.column).toBe(2);
+    const fresh = open("");
+    fresh.type("(");
+    fresh.backspace();
+    expect(fresh.text()).toBe("");
     document.setCursor({ line: 0, column: 1 });
     document.backspace();
-    expect(document.text()).toBe("");
+    expect(document.text()).toBe(")");
   });
 
   it("surrounds a selection with a typed quote", () => {
@@ -240,5 +244,64 @@ describe("expand selection and vertical cursors", () => {
     document.addCursorVertical(1);
     document.editAll("type", "X");
     expect(document.lines).toEqual(["abXc", "abXc"]);
+  });
+});
+
+describe("preserve case", () => {
+  it("gives replacements the case of what they replace", async () => {
+    const { preserveCase } = await import("@/buffer");
+    expect(preserveCase("FOO", "bar")).toBe("BAR");
+    expect(preserveCase("foo", "Bar")).toBe("bar");
+    expect(preserveCase("Foo", "bar")).toBe("Bar");
+    expect(preserveCase("fOo", "bar")).toBe("bar");
+  });
+});
+
+describe("several cursors and the clipboard", () => {
+  it("copies every selection line by line and pastes one line to each cursor", () => {
+    const document = open("a1 b1\na2 b2");
+    document.select({ line: 0, column: 0 }, { line: 0, column: 2 });
+    document.extras.push({
+      anchor: { line: 1, column: 0 },
+      cursor: { line: 1, column: 2 },
+    });
+    expect(document.copyText().text).toBe("a1\na2");
+    document.setCursor({ line: 0, column: 5 });
+    document.extras.push({
+      anchor: { line: 1, column: 5 },
+      cursor: { line: 1, column: 5 },
+    });
+    document.editAll("type", [" x", " y"]);
+    expect(document.lines).toEqual(["a1 b1 x", "a2 b2 y"]);
+  });
+});
+
+describe("line openers", () => {
+  it("inserts lines below and above with the indentation and deletes all left", () => {
+    const document = open("  a");
+    document.setCursor({ line: 0, column: 1 });
+    document.insertLine(false);
+    expect(document.lines).toEqual(["  a", "  "]);
+    document.insertLine(true);
+    expect(document.lines).toEqual(["  a", "  ", "  "]);
+    document.setCursor({ line: 0, column: 3 });
+    document.deleteAllLeft();
+    expect(document.lines[0]).toBe("  ");
+  });
+});
+
+describe("auto closing as vs code", () => {
+  it("steps over only the closers it typed itself", () => {
+    const document = open("");
+    document.type("(");
+    document.type("a");
+    document.type(")");
+    expect(document.text()).toBe("(a)");
+    document.type(")");
+    expect(document.text()).toBe("(a))");
+    const other = open("f(x)");
+    other.setCursor({ line: 0, column: 3 });
+    other.type(")");
+    expect(other.text()).toBe("f(x))");
   });
 });

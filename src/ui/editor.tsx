@@ -20,6 +20,7 @@ import { Clickable, type LocalMouseEvent } from "@/mouse/regions";
 import { fit, placeText, widthOf } from "@/text";
 import type { Tab, Workbench } from "@/workbench";
 import { foldEnd } from "@/folding";
+import { openExternal } from "@/files";
 import { stickyLines } from "@/symbols";
 import { useTheme } from "./theme";
 
@@ -899,17 +900,21 @@ export const CodeView = memo(
           if (workbench.find) workbench.find.field = null;
           workbench.menu = null;
           if (event.localX < gutter) {
-            document.select(
-              { line: position.line, column: 0 },
-              position.line + 1 < document.lines.length
-                ? { line: position.line + 1, column: 0 }
-                : {
-                    line: position.line,
-                    column: document.lines[position.line].length,
-                  },
-            );
-            workbench.changed();
-            return;
+            const selectLines = (from: number, to: number) => {
+              const [first, last] = from <= to ? [from, to] : [to, from];
+              const end =
+                last + 1 < document.lines.length
+                  ? { line: last + 1, column: 0 }
+                  : { line: last, column: document.lines[last].length };
+              if (from <= to) document.select({ line: first, column: 0 }, end);
+              else document.select(end, { line: first, column: 0 });
+              workbench.changed();
+            };
+            selectLines(position.line, position.line);
+            return (move) => {
+              const target = pointAt(move);
+              if (target) selectLines(position.line, target.line);
+            };
           }
           if (event.clicks === 3) {
             document.select(
@@ -925,6 +930,16 @@ export const CodeView = memo(
             return;
           }
           if (event.ctrl) {
+            const text = document.lines[position.line];
+            const link = [...text.matchAll(/https?:\/\/[^\s"'<>)\]]+/g)].find(
+              (match) =>
+                position.column >= match.index &&
+                position.column <= match.index + match[0].length,
+            );
+            if (link) {
+              openExternal(link[0]);
+              return;
+            }
             document.setCursor(position);
             void workbench.goToDefinition();
             return;

@@ -27,6 +27,9 @@ export interface Segment {
 
 const THEME_NAME = "codeee-editor";
 
+/** Chunks this close to the lines asked for redraw the screen; earlier ones only build up grammar state. */
+const REDRAW_LINES = 400;
+
 /** One highlighter per theme, shared by every open file. */
 export class SyntaxHighlighter {
   private core: Promise<HighlighterCore>;
@@ -196,7 +199,8 @@ export class DocumentHighlight {
             this.tokens[start + offset] = segments[offset];
           this.checkpoints[index + 1] = state;
           this.valid = start + lines.length;
-          this.onUpdate();
+          if (start + lines.length >= this.wanted - REDRAW_LINES)
+            this.onUpdate();
         }
         await new Promise((resolve) => setImmediate(resolve));
       }

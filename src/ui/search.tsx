@@ -91,6 +91,9 @@ export const SearchView = ({
             placeholder="Replace"
           />
         </Clickable>
+        {toggle("AB", Boolean(view.options.preserveCase), () =>
+          workbench.toggleSearchOption("preserveCase"),
+        )}
         <Clickable onClick={() => workbench.confirmReplaceAll()}>
           <Text color={palette.text}>{` ${glyphs.replaceAll}`}</Text>
         </Clickable>

@@ -309,6 +309,9 @@ const revealInFinder = (path: string) => {
 /** How often git's status is read again, for commits and staging made elsewhere (the watcher skips `.git`). */
 const GIT_POLL_MS = 3000;
 
+/** How many earlier queries the find widget keeps, as VS Code's find history. */
+const FIND_HISTORY = 50;
+
 /** How long the pointer rests before a tooltip shows, as VS Code's `editor.hover.delay`. */
 const HOVER_DELAY_MS = 300;
 
@@ -1867,13 +1870,30 @@ export class Workbench {
     this.afterEdit();
   }
 
+  /**
+   * Pastes text the way VS Code does with several cursors: one line per cursor when the counts match, the whole text
+   * at every cursor when it is one line; otherwise the extra cursors go and the text is pasted once.
+   */
+  private pasteText(text: string, wholeLine: boolean) {
+    const document = this.tab?.document;
+    if (!document) return;
+    if (document.extras.length) {
+      const lines = text.replace(/\r\n?/g, "\n").replace(/\n$/, "").split("\n");
+      const cursors = document.extras.length + 1;
+      if (lines.length === cursors) return document.editAll("type", lines);
+      if (lines.length === 1) return document.editAll("type", lines[0]);
+      document.extras = [];
+    }
+    document.paste(text, wholeLine);
+  }
+
   private async paste() {
     const document = this.tab?.document;
     if (!document) return;
     const system = await readClipboard();
     const text = system ?? this.clipboard?.text ?? "";
     if (!text) return;
-    document.paste(
+    this.pasteText(
       text,
       Boolean(this.clipboard?.wholeLine && this.clipboard.text === text),
     );
@@ -3006,8 +3026,12 @@ export class Workbench {
       return this.afterEdit();
     }
     if (document.extras.length) {
-      if (key.name === "text" || key.name === "paste") {
-        document.editAll("type", key.text!.replace(/\n/g, " "));
+      if (key.name === "text") {
+        document.editAll("type", key.text!);
+        return this.afterEdit();
+      }
+      if (key.name === "paste") {
+        this.pasteText(key.text!, false);
         return this.afterEdit();
       }
       if (key.name === "backspace" || key.name === "delete") {
@@ -3236,7 +3260,12 @@ export class Workbench {
     const document = this.tab?.document;
     if (!find || !document || !find.matches.length) return;
     const match = find.matches[find.current];
-    document.replaceMatches([match], find.replacement.value, this.pattern());
+    document.replaceMatches(
+      [match],
+      find.replacement.value,
+      this.pattern(),
+      find.options.preserveCase,
+    );
     this.updateMatches();
     const next = find.matches.findIndex(
       (other) =>
@@ -3257,6 +3286,7 @@ export class Workbench {
       find.matches,
       find.replacement.value,
       this.pattern(),
+      find.options.preserveCase,
     );
     this.say(
       `Replaced ${count} occurrence${count === 1 ? "" : "s"} across 1 file with '${find.replacement.value}'`,
@@ -3286,10 +3316,31 @@ export class Workbench {
     this.changed();
   }
 
+  /** Earlier find and replace texts, oldest first, for ↑ and ↓ in the find widget, as VS Code's find history. */
+  private findHistory: { query: string[]; replacement: string[] } = {
+    query: [],
+    replacement: [],
+  };
+
+  /** Keeps the find widget's current texts in its history. */
+  private rememberFind() {
+    const find = this.find;
+    if (!find) return;
+    for (const key of ["query", "replacement"] as const) {
+      const value = find[key].value;
+      if (!value) continue;
+      this.findHistory[key] = [
+        ...this.findHistory[key].filter((entry) => entry !== value),
+        value,
+      ].slice(-FIND_HISTORY);
+    }
+  }
+
   private findKey(key: KeyEvent) {
     const find = this.find!;
     const binding = optionChord(key) ?? bindingOf(key);
     if (key.name === "escape") {
+      this.rememberFind();
       this.find = null;
       return;
     }
@@ -3302,10 +3353,31 @@ export class Workbench {
         find.replacing && find.field === "query" ? "replacement" : "query";
       return;
     }
-    if (key.name === "enter" || key.name === "down" || key.name === "up") {
-      if (find.field === "replacement" && key.name === "enter")
+    if (key.name === "up" || key.name === "down") {
+      const target = find.field === "replacement" ? "replacement" : "query";
+      const history = this.findHistory[target];
+      if (!history.length) return;
+      const position = history.indexOf(find[target].value);
+      const next =
+        key.name === "up"
+          ? position < 0
+            ? history.length - 1
+            : Math.max(0, position - 1)
+          : position < 0
+            ? -1
+            : position + 1;
+      find[target] = field(
+        next >= 0 && next < history.length ? history[next] : "",
+        true,
+      );
+      if (target === "query") this.updateMatches(true);
+      return;
+    }
+    if (key.name === "enter") {
+      this.rememberFind();
+      if (find.field === "replacement")
         return key.ctrl || key.alt ? this.replaceAll() : this.replaceOne();
-      return this.findStep(key.shift || key.name === "up" ? -1 : 1);
+      return this.findStep(key.shift ? -1 : 1);
     }
     const target = find.field === "replacement" ? "replacement" : "query";
     const next = editField(find[target], key);
@@ -3899,11 +3971,17 @@ export class Workbench {
           matches,
           view.replacement.value,
           pattern ?? undefined,
+          view.options.preserveCase,
         );
         continue;
       }
       try {
-        count += await replaceInFile(result, view.replacement.value, pattern);
+        count += await replaceInFile(
+          result,
+          view.replacement.value,
+          pattern,
+          view.options.preserveCase,
+        );
       } catch (error) {
         this.say(
           `Failed to replace in ${basename(result.path)}: ${(error as Error).message}`,
@@ -4483,6 +4561,30 @@ export class Workbench {
         run: () => void this.openScm(),
       },
       {
+        action: "insertLineBelow",
+        label: "Insert Line Below",
+        run: () => this.withDocument((document) => document.insertLine(false)),
+      },
+      {
+        action: "insertLineAbove",
+        label: "Insert Line Above",
+        run: () => this.withDocument((document) => document.insertLine(true)),
+      },
+      {
+        action: "deleteAllLeft",
+        label: "Delete All Left",
+        run: () => this.withDocument((document) => document.deleteAllLeft()),
+      },
+      {
+        action: "toggleWhitespace",
+        label: "View: Toggle Render Whitespace",
+        run: () =>
+          this.setSetting(
+            "settings.renderWhitespace",
+            this.config.settings.renderWhitespace === "none" ? "all" : "none",
+          ),
+      },
+      {
         action: "outline",
         label: "View: Show Outline",
         run: () => {
@@ -4743,7 +4845,19 @@ export class Workbench {
         (this.focus === "scm" && this.scm?.typing) ||
         (this.focus === "settings" &&
           (this.settingsView.searching || this.settingsView.editing));
-      const fieldKeys = ["copy", "cut", "paste", "selectAll", "undo", "redo"];
+      const fieldKeys = [
+        "copy",
+        "cut",
+        "paste",
+        "selectAll",
+        "undo",
+        "redo",
+        "deleteAllLeft",
+        "insertLineBelow",
+        "insertLineAbove",
+        "expandSelection",
+        "shrinkSelection",
+      ];
       if (command && !(typing && fieldKeys.includes(action))) command.run();
       else if (this.find?.field && this.focus === "editor") this.findKey(key);
       else if (this.focus === "explorer") this.explorerKey(key);

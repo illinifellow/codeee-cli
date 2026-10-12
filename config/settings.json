@@ -125,7 +125,10 @@
     "expandSelection": "ctrl+shift+right",
     "shrinkSelection": "ctrl+shift+left",
     "scm": "alt+g",
-    "outline": "alt+o"
+    "outline": "alt+o",
+    "insertLineBelow": "alt+enter",
+    "insertLineAbove": "alt+shift+enter",
+    "deleteAllLeft": "ctrl+u"
   },
   "themes": {
     "golden-brown": {

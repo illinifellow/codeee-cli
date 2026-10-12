@@ -24,7 +24,7 @@ codeee is the sibling of [gittt](https://github.com/illinifellow/gittt-cli): git
 - **Hot exit:** unsaved files, untitled ones too, are backed up while you work and come back the next time, so quitting never asks and a crash loses nothing. Editor groups and their tabs come back as you left them.
 - **Explorer as in VS Code:** compact folders, a single click opens a preview tab, drag files between folders, Enter renames, Backspace deletes to the Trash.
 - **Follows your VS Code:** codeee starts from the settings of the VS Code on the machine (indentation, word wrap, whitespace, minimap, line numbers, saving, the explorer, tabs, sticky scroll and more); what you change in codeee wins.
-- **Hover:** problems show their message and rule under the pointer, tabs their path; menus and lists follow the pointer.
+- **Hover:** problems show their message and rule under the pointer, tabs their path; menus and lists follow the pointer. Files and tabs with problems are coloured, with counts in the explorer.
 - **IntelliSense:** suggestions as you type from the words of your open files and from snippets; ↑↓ to choose, Tab or Enter to insert.
 - **Source Control:** staged and unstaged changes, + and − to stage, a message box and Commit, a click opens the changes (`⌥G`).
 - **Multiple cursors:** `^D` adds the next occurrence of the selection, `⌥`-click adds a cursor; typing, Backspace, Delete, arrows and Home/End act on every one. Occurrences of the word at the cursor are highlighted.
@@ -40,12 +40,13 @@ codeee is the sibling of [gittt](https://github.com/illinifellow/gittt-cli): git
 - **HTML and JSX:** Emmet abbreviations on Tab (`ul>li.item$*3`), closing tags typed for you.
 - **Word wrap** (`⌥Z`, on for plain text), whitespace drawn, fold controls beside every block, Fold All and Unfold All (`⌥-` `⌥=`), snippet tab stops.
 - **Text commands:** upper, lower and title case, sort lines, join lines, delete duplicate lines, trim trailing whitespace; Open Folder and Open Recent switch folders in place.
-- **Navigation:** Go Back and Go Forward (`^⌥←` `^⌥→`), `^`-click goes to a definition, a click on the breadcrumbs lists the file's symbols, the Outline view (View: Show Outline), the Problems list (View: Show Problems).
+- **Navigation:** Go Back and Go Forward (`^⌥←` `^⌥→`), `^`-click goes to a definition or opens a link, a click on the breadcrumbs lists the file's symbols, the Outline view (View: Show Outline), the Problems list (View: Show Problems).
 - **Git:** Open Changes shows the file's changes against the last commit inline.
 - **Menus as in VS Code:** tabs (Close Others, Close to the Right, Close Saved, Close All, Split Right, Reveal in Finder), the editor (Go to Definition, Rename Symbol, Change All Occurrences, Format Document), the explorer (Find in Folder, Copy, Paste, Reveal in Finder) and search results (Replace, Dismiss, Copy All); a middle click closes a tab.
 - **Selections:** Expand and Shrink Selection (`^⇧→` `^⇧←`), cursors above and below (`^⌥↑` `^⌥↓`), box selection with `⇧⌥`-drag.
 - **Files:** Save All (`⌥S`), Save As, Revert File, Compare with Saved, Copy Path, end of line and indentation conversion.
-- **More editing:** Format Selection, Toggle Block Comment (`⌥⇧A`), Find in Selection (`⌥L`), recently used commands first in `>`, `@modified` on the settings page, key bindings recorded by pressing them.
+- **Clipboard with several cursors:** copy collects every selection line by line, paste gives one line to each cursor.
+- **More editing:** Format Selection, Toggle Block Comment (`⌥⇧A`), Find in Selection (`⌥L`), Preserve Case (AB) when replacing, find history on ↑ ↓, Insert Line Below and Above (`⌥↩` `⌥⇧↩`), Delete All Left (`^U`), recently used commands first in `>`, `@modified` on the settings page, key bindings recorded by pressing them.
 - **Small things VS Code users expect:** Reopen Closed Editor, Change Language Mode and Change Indentation commands, type a name in the explorer to jump to it, whitespace shown inside selections.
 - **Option as Alt** even when the terminal sends Option as text, so every `⌥` shortcut works in a stock iTerm2 or Terminal.
 - **Settings page** like VS Code's: search, table of contents, every option with its description and control, modified marks, reset, and the JSON file one click away.
