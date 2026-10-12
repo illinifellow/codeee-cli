@@ -208,7 +208,7 @@ let restarting = false;
 /** The open editor, so a rebuild never restarts over unsaved files. */
 let activeWorkbench: Workbench | null = null;
 const dirty = () =>
-  Boolean(activeWorkbench?.tabs.some((tab) => tab.document?.dirty));
+  Boolean(activeWorkbench?.allTabs().some((tab) => tab.document?.dirty));
 /** Leaves the screen so the closing handler can start the new codeee in this process. */
 const restart = () => {
   if (restarting) return;

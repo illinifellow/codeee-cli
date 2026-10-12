@@ -796,6 +796,11 @@ export const CodeView = memo(
             scrollTo(event.localY);
             return (move) => scrollTo(move.localY);
           }
+          const group = workbench.groups.findIndex((entry) =>
+            entry.tabs.includes(tab),
+          );
+          if (group >= 0 && group !== workbench.group)
+            workbench.focusGroup(group);
           const position = pointAt(event);
           if (!position) return;
           workbench.focus = "editor";

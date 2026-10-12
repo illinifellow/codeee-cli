@@ -267,8 +267,120 @@ const relativeTo = (root: string, path: string) =>
 export class Workbench {
   config: Config;
   tree: FileTree;
-  tabs: Tab[] = [];
-  active = -1;
+  /** Editor groups side by side, each with its tabs and its active tab, as VS Code's split editors. */
+  groups: { tabs: Tab[]; active: number }[] = [{ tabs: [], active: -1 }];
+  /** The group with the keyboard. */
+  group = 0;
+  /** The screen cells each group spans, set by the screen, for dropping dragged tabs. */
+  groupBounds: { left: number; right: number }[] = [];
+
+  /** @returns the tabs of the active group */
+  get tabs() {
+    return this.groups[this.group].tabs;
+  }
+
+  set tabs(tabs: Tab[]) {
+    this.groups[this.group].tabs = tabs;
+  }
+
+  /** @returns the index of the active group's shown tab */
+  get active() {
+    return this.groups[this.group].active;
+  }
+
+  set active(index: number) {
+    this.groups[this.group].active = index;
+  }
+
+  /** @returns the tabs of every group */
+  allTabs() {
+    return this.groups.flatMap((group) => group.tabs);
+  }
+
+  /**
+   * Gives the keyboard to an editor group.
+   * @param group the group's index
+   */
+  focusGroup(group: number) {
+    if (!this.groups[group] || group === this.group) return;
+    this.group = group;
+    this.focus = this.tab?.kind === "settings" ? "settings" : "editor";
+    this.updateMatches();
+    this.changed();
+  }
+
+  /**
+   * Opens the active tab in a new group to the right, as View: Split Editor; both show the same document.
+   */
+  splitEditor() {
+    const tab = this.tab;
+    if (!tab) return;
+    const copy: Tab = {
+      ...tab,
+      id: nextTabId++,
+      preview: false,
+      folds: new Set(tab.folds ?? []),
+    };
+    this.groups.splice(this.group + 1, 0, { tabs: [copy], active: 0 });
+    this.group++;
+    this.focus = copy.kind === "settings" ? "settings" : "editor";
+    this.changed();
+  }
+
+  /**
+   * Moves a tab to another group, or to a new group at the right edge, as dragging a tab does.
+   * @param from the tab's group
+   * @param index the tab
+   * @param to the target group; the number of groups makes a new one
+   */
+  moveTab(from: number, index: number, to: number) {
+    const source = this.groups[from];
+    const [tab] = source?.tabs.splice(index, 1) ?? [];
+    if (!tab) return;
+    if (to >= this.groups.length) this.groups.push({ tabs: [], active: -1 });
+    const target = this.groups[to];
+    const existing = target.tabs.findIndex(
+      (open) => open.path && open.path === tab.path,
+    );
+    if (existing >= 0) target.active = existing;
+    else {
+      target.tabs.splice(target.active + 1, 0, tab);
+      target.active = target.tabs.indexOf(tab);
+    }
+    source.active = Math.min(source.active, source.tabs.length - 1);
+    this.group = this.groups.indexOf(target);
+    this.dropEmptyGroups();
+    this.changed();
+  }
+
+  /** Removes groups left without tabs, keeping at least one. */
+  private dropEmptyGroups() {
+    const current = this.groups[this.group];
+    this.groups = this.groups.filter(
+      (group) => group.tabs.length || this.groups.length === 1,
+    );
+    if (!this.groups.length) this.groups = [{ tabs: [], active: -1 }];
+    this.group = Math.max(0, this.groups.indexOf(current));
+    if (this.group < 0 || !this.groups[this.group])
+      this.group = this.groups.length - 1;
+  }
+
+  /**
+   * Closes, without asking, every tab in every group whose file lies at or under a path, as deleting it does.
+   * @param path the deleted path
+   */
+  private closeUnder(path: string) {
+    const current = this.group;
+    for (let group = this.groups.length - 1; group >= 0; group--) {
+      this.group = group;
+      for (let index = this.tabs.length - 1; index >= 0; index--) {
+        const tabPath = this.tabs[index].path;
+        if (tabPath && (tabPath === path || tabPath.startsWith(`${path}/`)))
+          this.discard(index);
+      }
+    }
+    this.group = Math.min(current, this.groups.length - 1);
+  }
   focus: Focus = "editor";
   explorerCursor = 0;
   explorerTop = 0;
@@ -688,7 +800,11 @@ export class Workbench {
     tab.highlight?.dispose();
     this.remember(tab);
     if (this.active >= index) this.active = Math.max(0, this.active - 1);
-    if (!this.tabs.length) {
+    if (!this.tabs.length && this.groups.length > 1) {
+      this.groups.splice(this.group, 1);
+      this.group = Math.min(this.group, this.groups.length - 1);
+      this.focus = this.tab?.kind === "settings" ? "settings" : "editor";
+    } else if (!this.tabs.length) {
       this.active = -1;
       this.focus = "explorer";
     } else
@@ -717,10 +833,14 @@ export class Workbench {
 
   /** Stores the open tabs and cursor positions of this folder. */
   saveSession() {
-    for (const tab of this.tabs) this.remember(tab);
+    for (const tab of this.allTabs()) this.remember(tab);
     const state = this.config.state;
     state.sessions[this.root] = {
-      open: this.tabs.flatMap((tab) => (tab.path ? [tab.path] : [])),
+      open: [
+        ...new Set(
+          this.allTabs().flatMap((tab) => (tab.path ? [tab.path] : [])),
+        ),
+      ],
       active: this.tab?.path ?? null,
     };
     try {
@@ -826,7 +946,15 @@ export class Workbench {
 
   /** Leaves codeee, asking about unsaved files first. */
   quit() {
-    const dirty = this.tabs.filter((tab) => tab.document?.dirty);
+    const dirty = [
+      ...new Set(
+        this.allTabs()
+          .filter((tab) => tab.document?.dirty)
+          .map((tab) => tab.document),
+      ),
+    ].map(
+      (document) => this.allTabs().find((tab) => tab.document === document)!,
+    );
     const leave = () => {
       this.saveSession();
       this.watcher?.close();
@@ -849,9 +977,15 @@ export class Workbench {
           primary: true,
           run: () => {
             const saveNext = () => {
-              const index = this.tabs.findIndex((tab) => tab.document?.dirty);
-              if (index < 0) return leave();
-              this.save(index, saveNext);
+              const group = this.groups.findIndex((entry) =>
+                entry.tabs.some((tab) => tab.document?.dirty),
+              );
+              if (group < 0) return leave();
+              this.group = group;
+              this.save(
+                this.tabs.findIndex((tab) => tab.document?.dirty),
+                saveNext,
+              );
             };
             saveNext();
           },
@@ -868,7 +1002,7 @@ export class Workbench {
     this.tree.exclude = this.config.settings.exclude;
     this.tree.refresh();
     this.files = null;
-    for (const tab of this.tabs)
+    for (const tab of this.allTabs())
       if (tab.document) tab.document.options = this.editOptions();
     this.onConfig(this.config);
     this.changed();
@@ -879,7 +1013,7 @@ export class Workbench {
     this.tree.refresh();
     this.refreshGit();
     this.files = null;
-    for (const tab of this.tabs) {
+    for (const tab of this.allTabs()) {
       if (!tab.path || !tab.document || !paths.includes(tab.path)) continue;
       const modified = modifiedTime(tab.path);
       if (!modified || modified === tab.modified) continue;
@@ -1004,7 +1138,7 @@ export class Workbench {
             const problem = nameProblem(dirname(path), name);
             if (problem) return problem;
             const target = renameEntry(path, name);
-            for (const tab of this.tabs)
+            for (const tab of this.allTabs())
               if (
                 tab.path &&
                 (tab.path === path || tab.path.startsWith(`${path}/`))
@@ -1049,7 +1183,7 @@ export class Workbench {
       );
     }
     const target = join(folder, basename(path));
-    for (const tab of this.tabs)
+    for (const tab of this.allTabs())
       if (tab.path && (tab.path === path || tab.path.startsWith(`${path}/`)))
         tab.path = target + tab.path.slice(path.length);
     this.tree.expanded.add(folder);
@@ -1070,11 +1204,7 @@ export class Workbench {
       } catch (error) {
         return this.say(`Failed to delete: ${(error as Error).message}`, true);
       }
-      for (let index = this.tabs.length - 1; index >= 0; index--) {
-        const tabPath = this.tabs[index].path;
-        if (tabPath && (tabPath === path || tabPath.startsWith(`${path}/`)))
-          this.discard(index);
-      }
+      this.closeUnder(path);
       this.tree.refresh();
       this.files = null;
       this.clampExplorer();
@@ -1097,14 +1227,7 @@ export class Workbench {
             } catch (error) {
               return `Failed to delete: ${(error as Error).message}`;
             }
-            for (let index = this.tabs.length - 1; index >= 0; index--) {
-              const tabPath = this.tabs[index].path;
-              if (
-                tabPath &&
-                (tabPath === path || tabPath.startsWith(`${path}/`))
-              )
-                this.discard(index);
-            }
+            this.closeUnder(path);
             this.tree.refresh();
             this.files = null;
             this.clampExplorer();
@@ -1202,10 +1325,10 @@ export class Workbench {
         if (row?.folder && !row.expanded) return this.tree.toggle(row.path);
         return row?.folder ? move(this.explorerCursor + 1) : undefined;
       case "enter":
-        return this.openRow(this.explorerCursor);
+        return row && this.renameInExplorer(row.path);
       case "text": {
         if (key.text === " " && !this.typed.text)
-          return this.openRow(this.explorerCursor, true);
+          return this.openRow(this.explorerCursor, !row?.folder, false);
         const now = Date.now();
         this.typed = {
           text:
@@ -1229,6 +1352,7 @@ export class Workbench {
       case "f2":
         return row && this.renameInExplorer(row.path);
       case "delete":
+      case "backspace":
         return row && this.deleteInExplorer(row.path);
       case "escape":
         if (this.tab)
@@ -1730,7 +1854,7 @@ export class Workbench {
     const folder = expandPath(value.trim());
     if (!existsSync(folder) || !statSync(folder).isDirectory())
       return `${folder} is not a folder.`;
-    if (this.tabs.some((tab) => tab.document?.dirty))
+    if (this.allTabs().some((tab) => tab.document?.dirty))
       return "Save or close the unsaved files first.";
     const state = this.config.state;
     state.recent = [
@@ -2713,7 +2837,7 @@ export class Workbench {
         },
       });
       if (abort.signal.aborted) return;
-      for (const tab of this.tabs) {
+      for (const tab of this.allTabs()) {
         if (!tab.path || !tab.document?.dirty) continue;
         const matches = tab.document.find(query.query, query).map((match) => ({
           ...match,
@@ -2799,7 +2923,7 @@ export class Workbench {
       : null;
     let count = 0;
     for (const result of results) {
-      const tab = this.tabs.find(
+      const tab = this.allTabs().find(
         (open) => open.path === result.path && open.document,
       );
       if (tab?.document) {
@@ -3185,6 +3309,24 @@ export class Workbench {
         label: "Copy Line Up",
         run: () =>
           this.withDocument((document) => document.duplicateLines(true)),
+      },
+      {
+        action: "splitEditor",
+        label: "View: Split Editor",
+        run: () => this.splitEditor(),
+      },
+      {
+        action: "focusNextGroup",
+        label: "View: Focus Next Editor Group",
+        run: () => this.focusGroup((this.group + 1) % this.groups.length),
+      },
+      {
+        action: "focusPreviousGroup",
+        label: "View: Focus Previous Editor Group",
+        run: () =>
+          this.focusGroup(
+            (this.group - 1 + this.groups.length) % this.groups.length,
+          ),
       },
       {
         action: "goToSymbol",
