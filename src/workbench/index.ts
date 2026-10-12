@@ -2108,6 +2108,52 @@ export class Workbench {
     this.changed();
   }
 
+  /** Lists the ESLint problems of every open file in Quick Open, errors first, as VS Code's Problems view. */
+  showProblems() {
+    const seen = new Set<Document>();
+    const entries = this.allTabs().flatMap((tab) => {
+      if (!tab.document || !tab.path || seen.has(tab.document)) return [];
+      seen.add(tab.document);
+      return (tab.diagnostics ?? []).map((problem) => ({ tab, problem }));
+    });
+    entries.sort((a, b) =>
+      a.problem.severity === b.problem.severity
+        ? 0
+        : a.problem.severity === "error"
+          ? -1
+          : 1,
+    );
+    this.palette = {
+      field: field(),
+      cursor: 0,
+      placeholder: entries.length
+        ? "Filter problems"
+        : "No problems have been detected in the workspace.",
+      items: [],
+    };
+    this.paletteSource = (query) =>
+      entries.flatMap(({ tab, problem }) => {
+        const label = `${problem.severity === "error" ? "✖" : "⚠"} ${problem.message}`;
+        const match = fuzzyMatch(label, query);
+        return match
+          ? [
+              {
+                label,
+                detail: `${relativeTo(this.root, tab.path!)} ${problem.line + 1}:${problem.start + 1}${problem.rule ? `  ${problem.rule}` : ""}`,
+                positions: match.positions,
+                run: () =>
+                  this.open(tab.path!, {
+                    line: problem.line,
+                    column: problem.start,
+                  }),
+              },
+            ]
+          : [];
+      });
+    this.filterPalette();
+    this.changed();
+  }
+
   /** Opens the most recently closed tab again. */
   reopenClosed() {
     const path = this.closed.pop();
@@ -3734,6 +3780,11 @@ export class Workbench {
         action: "selectAllOccurrences",
         label: "Change All Occurrences",
         run: () => this.selectAllOccurrences(),
+      },
+      {
+        action: "problems",
+        label: "View: Show Problems",
+        run: () => this.showProblems(),
       },
       { action: "goBack", label: "Go Back", run: () => this.navigate(-1) },
       { action: "goForward", label: "Go Forward", run: () => this.navigate(1) },

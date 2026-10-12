@@ -80,12 +80,14 @@ export const FieldText = ({
     <Text backgroundColor={palette.field} color={palette.text}>
       {before}
       <Text backgroundColor={palette.cursor} color={palette.cursorText}>
-        {under}
+        {!state.value && placeholder ? placeholder[0] : under}
       </Text>
       {after}
-      {!state.value && placeholder
-        ? fit(placeholder.slice(1), rest)
-        : " ".repeat(rest)}
+      {!state.value && placeholder ? (
+        <Text color={palette.textMuted}>{fit(placeholder.slice(1), rest)}</Text>
+      ) : (
+        " ".repeat(rest)
+      )}
     </Text>
   );
 };
