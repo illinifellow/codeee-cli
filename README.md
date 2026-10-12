@@ -20,7 +20,7 @@ codeee is the sibling of [gittt](https://github.com/illinifellow/gittt-cli): git
 - **Explorer:** the folder's tree with the icons of your VS Code icon theme, git states (modified, untracked, added, deleted, conflicted, ignored) and unsaved files; new file, new folder, rename, delete to the Trash, copy path.
 - **Tabs and Quick Open:** files open in tabs and come back next time with their cursor where you left it; `^P` finds any file by fuzzy name, `:` goes to a line, `>` runs any command.
 - **Highlighting:** every language shiki bundles (over 240), found the way VS Code finds them (its installed language extensions, file names, shebangs), coloured by your VS Code theme with your `editor.tokenColorCustomizations`.
-- **Editor groups:** split the editor right or down, drag tabs between groups or to the right edge for a new one, toggle the layout, drag the divider between groups; double-click the tab bar for a new file; tabs wrap onto more rows when they do not fit. Zen Mode hides everything but the code.
+- **Editor groups:** split the editor right or down, drag tabs between groups or to the right edge for a new one, toggle the layout, drag the divider between groups, drag tabs along the bar to reorder them, close or join groups; double-click the tab bar for a new file; tabs wrap onto more rows when they do not fit. Zen Mode hides everything but the code.
 - **Hot exit:** unsaved files, untitled ones too, are backed up while you work and come back the next time, so quitting never asks and a crash loses nothing. Editor groups and their tabs come back as you left them.
 - **Explorer as in VS Code:** compact folders, a single click opens a preview tab, drag files between folders, Enter renames, Backspace deletes to the Trash.
 - **Follows your VS Code:** codeee starts from the settings of the VS Code on the machine (indentation, word wrap, whitespace, minimap, line numbers, saving, the explorer, tabs, sticky scroll and more); what you change in codeee wins.
@@ -33,14 +33,14 @@ codeee is the sibling of [gittt](https://github.com/illinifellow/gittt-cli): git
 - **Format Document** with Prettier: the project's Prettier and configuration, or the one the VS Code extension bundles, so the result is what VS Code gives. Optional format on save.
 - **From neovim:** lines kept around the cursor while scrolling, relative line numbers, jump to the matching bracket, the last cursor position of every file.
 - **From VS Code extensions:** the current line's blame (GitLens); colour literals drawn on their colour (Color Highlight); ESLint problems underlined and written at the line's end (ESLint, Error Lens); the snippets of your installed extensions and your own, expanded on Tab; Markdown Preview that follows every edit.
-- **As VS Code draws code:** indent guides, bracket pair colours, the minimap, sticky scroll of the enclosing blocks, git change marks beside the line numbers.
+- **As VS Code draws code:** indent guides with the active one brighter, bracket pair colours, the minimap with find matches and problems marked, sticky scroll of the enclosing blocks, git change marks beside the line numbers; tabs of files deleted on disk are struck through.
 - **Go to Symbol:** `@` in Quick Open lists the file's functions, classes, headings and rules; `F8` walks the problems.
 - **Auto save** after a delay or on focus change, as `files.autoSave`.
 - **Code intelligence without a language server:** Go to Definition (`F12`) in the file and across the folder, Rename Symbol (`F2`) in the file, enclosing symbols in the breadcrumbs, code folding by indentation.
 - **HTML and JSX:** Emmet abbreviations on Tab (`ul>li.item$*3`), closing tags typed for you.
 - **Word wrap** (`⌥Z`, on for plain text), whitespace drawn, fold controls beside every block, Fold All and Unfold All (`⌥-` `⌥=`), snippet tab stops.
 - **Text commands:** upper, lower and title case, sort lines, join lines, delete duplicate lines, trim trailing whitespace; Open Folder and Open Recent switch folders in place.
-- **Navigation:** Go Back and Go Forward (`^⌥←` `^⌥→`), `^`-click goes to a definition or opens a link, a click on the breadcrumbs lists the file's symbols, the Outline view (View: Show Outline), the Problems list (View: Show Problems).
+- **Navigation:** Go Back and Go Forward (`^⌥←` `^⌥→`), `^`-click goes to a definition or opens a link, `?` in Quick Open lists its modes, a click on the breadcrumbs lists the file's symbols, the Outline view (View: Show Outline), the Problems list (View: Show Problems).
 - **Git:** Open Changes shows the file's changes against the last commit inline.
 - **Menus as in VS Code:** tabs (Close Others, Close to the Right, Close Saved, Close All, Split Right, Reveal in Finder), the editor (Go to Definition, Rename Symbol, Change All Occurrences, Format Document), the explorer (Find in Folder, Copy, Paste, Reveal in Finder) and search results (Replace, Dismiss, Copy All); a middle click closes a tab.
 - **Selections:** Expand and Shrink Selection (`^⇧→` `^⇧←`), cursors above and below (`^⌥↑` `^⌥↓`), box selection with `⇧⌥`-drag.

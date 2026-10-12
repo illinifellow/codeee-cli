@@ -134,6 +134,8 @@ export interface Tab {
     index: number;
     lengths: Map<number, number>;
   };
+  /** The file is gone from disk; the tab keeps its text, as VS Code's (deleted) tabs. */
+  deleted?: boolean;
   /** A format before saving is running. */
   formatting?: boolean;
   /** The line and first cell each editor row showed at the last draw, for clicks under word wrap. */
@@ -433,6 +435,22 @@ export class Workbench {
     source.active = Math.min(source.active, source.tabs.length - 1);
     this.group = this.groups.indexOf(target);
     this.dropEmptyGroups();
+    this.changed();
+  }
+
+  /**
+   * Moves a tab to another place in its group, as dragging it along the tab bar does.
+   * @param group the group
+   * @param from the tab's index
+   * @param to where it goes
+   */
+  reorderTab(group: number, from: number, to: number) {
+    const entry = this.groups[group];
+    const [tab] = entry.tabs.splice(from, 1);
+    if (!tab) return;
+    entry.tabs.splice(to, 0, tab);
+    entry.active = entry.tabs.indexOf(tab);
+    this.saveSession();
     this.changed();
   }
 
@@ -1067,6 +1085,7 @@ export class Workbench {
     try {
       tab.modified = writeText(tab.path, tab.document.text());
       tab.document.markSaved();
+      tab.deleted = false;
       removeBackup(tab.path);
       this.refreshGit();
       this.tree.refresh();
@@ -1193,6 +1212,7 @@ export class Workbench {
     for (const tab of this.allTabs()) {
       if (!tab.path || !tab.document || !paths.includes(tab.path)) continue;
       const modified = modifiedTime(tab.path);
+      tab.deleted = !modified;
       if (!modified || modified === tab.modified) continue;
       if (tab.document.dirty) {
         this.say(`${tab.title} changed on disk; saving overwrites it`, true);
@@ -3086,6 +3106,7 @@ export class Workbench {
         this.updateSuggestions(false);
         break;
       case "delete":
+        if (key.shift && !key.ctrl && !key.alt) return this.cut();
         document.deleteForward(word);
         break;
       case "tab":
@@ -3411,6 +3432,18 @@ export class Workbench {
     palette.cursor = 0;
     if (this.paletteSource) {
       palette.items = this.paletteSource(value.trim());
+      return;
+    }
+    if (value === "?") {
+      palette.items = [
+        ["", "Go to File"],
+        [":", "Go to Line/Column"],
+        ["@", "Go to Symbol in Editor"],
+        [">", "Show and Run Commands"],
+      ].map(([prefix, label]) => ({
+        label: `${prefix || "…"}  ${label}`,
+        run: () => this.openPalette(prefix),
+      }));
       return;
     }
     if (value.startsWith("@")) {
@@ -4583,6 +4616,32 @@ export class Workbench {
             "settings.renderWhitespace",
             this.config.settings.renderWhitespace === "none" ? "all" : "none",
           ),
+      },
+      {
+        action: "closeGroup",
+        label: "View: Close Editor Group",
+        run: () => {
+          for (let index = this.tabs.length - 1; index >= 0; index--)
+            this.close(index);
+        },
+      },
+      {
+        action: "joinGroups",
+        label: "View: Join All Editor Groups",
+        run: () => {
+          const all: Tab[] = [];
+          for (const group of this.groups)
+            for (const tab of group.tabs)
+              if (!all.some((other) => other.path && other.path === tab.path))
+                all.push(tab);
+          const shown = this.tab;
+          this.groups = [
+            { tabs: all, active: Math.max(0, shown ? all.indexOf(shown) : 0) },
+          ];
+          this.group = 0;
+          this.groupSizes = [];
+          this.saveSession();
+        },
       },
       {
         action: "outline",

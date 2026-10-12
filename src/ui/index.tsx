@@ -875,6 +875,35 @@ const TabStrip = ({
                             move.y >= bounds.top &&
                             move.y < bounds.bottom,
                         );
+                  if (target === group && move.localY === 0) {
+                    const row =
+                      tabRows(
+                        workbench.groups[group].tabs,
+                        workbench.groups[group].active,
+                        width,
+                        glyphs,
+                        workbench.config.settings.wrapTabs,
+                      ).find((entry) => entry.includes(index)) ?? [];
+                    const widthOfTab = (position: number) => {
+                      const other = workbench.groups[group].tabs[position];
+                      return widthOf(
+                        ` ${other.kind === "settings" ? glyphs.settings : "◆"} ${other.title} ${glyphs.close} `,
+                      );
+                    };
+                    let offset =
+                      row
+                        .slice(0, row.indexOf(index))
+                        .reduce(
+                          (total, position) => total + widthOfTab(position),
+                          0,
+                        ) + move.localX;
+                    const destination = row.find(
+                      (position) => (offset -= widthOfTab(position)) < 0,
+                    );
+                    if (destination !== undefined && destination !== index)
+                      workbench.reorderTab(group, index, destination);
+                    return;
+                  }
                   if (
                     target >= 0 &&
                     (target !== group || target === workbench.groups.length)
@@ -908,9 +937,11 @@ const TabStrip = ({
                             : color
                     }
                     italic={tab.preview}
+                    strikethrough={tab.deleted}
                   >
                     {" "}
-                    {tab.title}{" "}
+                    {tab.title}
+                    {tab.deleted ? " (deleted)" : ""}{" "}
                   </Text>
                 </Text>
                 <Clickable
