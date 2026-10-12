@@ -148,6 +148,8 @@ export interface FindState {
   /** Which of its fields has the keyboard; `null` when the editor has it and the widget only stays open. */
   field: "query" | "replacement" | null;
   options: FindOptions;
+  /** Find in Selection: matches only inside this range. */
+  scope?: [Position, Position];
   matches: Match[];
   current: number;
 }
@@ -2608,6 +2610,15 @@ export class Workbench {
       return;
     }
     find.matches = document.find(find.query.value, find.options);
+    const scope = find.scope;
+    if (scope)
+      find.matches = find.matches.filter(
+        (match) =>
+          (match.line > scope[0].line ||
+            (match.line === scope[0].line && match.start >= scope[0].column)) &&
+          (match.line < scope[1].line ||
+            (match.line === scope[1].line && match.end <= scope[1].column)),
+      );
     const { line, column } = document.range()[0];
     const after = find.matches.findIndex(
       (match) =>
@@ -2709,6 +2720,20 @@ export class Workbench {
     this.afterEdit();
   }
 
+  /** Limits the find to the selection, or lifts the limit, as the find widget's Find in Selection (⌥L). */
+  toggleFindInSelection() {
+    const find = this.find;
+    const document = this.tab?.document;
+    if (!find || !document) return;
+    find.scope = find.scope
+      ? undefined
+      : document.hasSelection
+        ? document.range()
+        : undefined;
+    this.updateMatches(false);
+    this.changed();
+  }
+
   /** Flips a find option. */
   toggleFindOption(option: keyof FindOptions) {
     if (!this.find) return;
@@ -2727,6 +2752,7 @@ export class Workbench {
     if (binding === "alt+c") return this.toggleFindOption("caseSensitive");
     if (binding === "alt+w") return this.toggleFindOption("wholeWord");
     if (binding === "alt+r") return this.toggleFindOption("regex");
+    if (binding === "alt+l") return this.toggleFindInSelection();
     if (key.name === "tab") {
       find.field =
         find.replacing && find.field === "query" ? "replacement" : "query";
@@ -2804,6 +2830,9 @@ export class Workbench {
     }
     if (value.startsWith(">")) {
       const query = value.slice(1).trim();
+      const recent = this.recentCommands;
+      const rank = (action: string) =>
+        recent.includes(action) ? recent.indexOf(action) : recent.length;
       palette.items = this.commands()
         .flatMap((command) => {
           const match = fuzzyMatch(command.label, query);
@@ -2814,15 +2843,25 @@ export class Workbench {
             ? [
                 {
                   label: command.label,
-                  detail: key,
+                  detail:
+                    recent.includes(command.action) && !query
+                      ? `recently used${key ? `  ${key}` : ""}`
+                      : key,
                   positions: match.positions,
-                  run: command.run,
+                  run: () => {
+                    this.recentCommands = [
+                      command.action,
+                      ...recent.filter((action) => action !== command.action),
+                    ].slice(0, 10);
+                    command.run();
+                  },
                   score: match.score,
+                  rank: rank(command.action),
                 },
               ]
             : [];
         })
-        .sort((a, b) => b.score - a.score);
+        .sort((a, b) => (query ? b.score - a.score : a.rank - b.rank));
       return;
     }
     const lineMatch =
@@ -2909,6 +2948,9 @@ export class Workbench {
   /** A list Quick Open shows instead of files, for language and indentation pickers; cleared when it closes. */
   private paletteSource: ((query: string) => PaletteItem[]) | null = null;
 
+  /** Commands run from Quick Open, newest first, listed first next time, as VS Code's recently used. */
+  private recentCommands: string[] = [];
+
   /** Runs a Quick Open entry. */
   choosePalette(index: number) {
     const item = this.palette?.items[index];
@@ -2944,7 +2986,42 @@ export class Workbench {
 
   /** @returns the settings page's rows for its search and category */
   settingsRows(): PageRow[] {
-    return pageRows(this.settingsView.category, this.settingsView.search.value);
+    const search = this.settingsView.search.value;
+    if (!search.includes("@modified"))
+      return pageRows(this.settingsView.category, search);
+    const defaults = this.defaults();
+    const rows = pageRows(
+      this.settingsView.category,
+      search.replace("@modified", "").trim(),
+    );
+    const modified = (row: PageRow) =>
+      row.kind === "setting" &&
+      JSON.stringify(valueAt(this.config, row.spec.key)) !==
+        JSON.stringify(valueAt(defaults, row.spec.key));
+    return rows.filter((row, index) =>
+      row.kind === "setting"
+        ? modified(row)
+        : rows
+            .slice(index + 1)
+            .find(
+              (next) =>
+                next.kind === "setting" ||
+                (next.kind === "heading" && next.level <= row.level),
+            ) &&
+          rows
+            .slice(index + 1)
+            .some(
+              (next, offset) =>
+                next.kind === "setting" &&
+                modified(next) &&
+                !rows
+                  .slice(index + 1, index + 1 + offset)
+                  .some(
+                    (between) =>
+                      between.kind === "heading" && between.level <= row.level,
+                  ),
+            ),
+    );
   }
 
   /** @returns the settings on the page, in order */

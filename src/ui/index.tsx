@@ -836,6 +836,9 @@ const FindWidget = ({
         {option(glyphs.regex, find.options.regex, () =>
           workbench.toggleFindOption("regex"),
         )}
+        {option("≡", Boolean(find.scope), () =>
+          workbench.toggleFindInSelection(),
+        )}
         <Text
           color={
             find.query.value && !find.matches.length
