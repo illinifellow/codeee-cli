@@ -4719,6 +4719,44 @@ export class Workbench {
         run: () => this.pickTheme(),
       },
       {
+        action: "keyboardShortcuts",
+        label: "Preferences: Open Keyboard Shortcuts",
+        run: () => {
+          this.openSettings();
+          this.settingsView.category = "Keyboard Shortcuts";
+          this.settingsView.cursor = 0;
+          this.settingsView.top = 0;
+          this.settingsView.searching = false;
+        },
+      },
+      {
+        action: "toggleStickyScroll",
+        label: "View: Toggle Sticky Scroll",
+        run: () =>
+          this.setSetting(
+            "settings.stickyScroll",
+            !this.config.settings.stickyScroll,
+          ),
+      },
+      {
+        action: "toggleRelativeNumbers",
+        label: "View: Toggle Relative Line Numbers",
+        run: () =>
+          this.setSetting(
+            "settings.relativeLineNumbers",
+            !this.config.settings.relativeLineNumbers,
+          ),
+      },
+      {
+        action: "toggleCompactFolders",
+        label: "Explorer: Toggle Compact Folders",
+        run: () =>
+          this.setSetting(
+            "settings.compactFolders",
+            !this.config.settings.compactFolders,
+          ),
+      },
+      {
         action: "outline",
         label: "View: Show Outline",
         run: () => {
