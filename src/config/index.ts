@@ -54,6 +54,7 @@ export type KeyBindings = Record<
   | "comment"
   | "format"
   | "goToSymbol"
+  | "markdownPreview"
   | "nextProblem"
   | "previousProblem"
   | "search"

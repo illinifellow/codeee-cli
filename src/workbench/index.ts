@@ -88,7 +88,9 @@ export type Focus = "editor" | "explorer" | "settings" | "search";
 /** An editor tab. */
 export interface Tab {
   id: number;
-  kind: "file" | "settings";
+  kind: "file" | "settings" | "preview";
+  /** The Markdown file a preview shows. */
+  source?: Tab;
   /** Absolute path; `null` for an untitled file and the settings page. */
   path: string | null;
   title: string;
@@ -555,6 +557,38 @@ export class Workbench {
     }
     this.focus = "settings";
     this.settingsView.searching = true;
+    this.changed();
+  }
+
+  /** Opens Markdown Preview of the active Markdown file beside it, or shows the open one. */
+  openPreview() {
+    const source = this.tab?.kind === "preview" ? this.tab.source : this.tab;
+    if (
+      !source?.document ||
+      (source.language !== "markdown" && source.language !== "mdx")
+    )
+      return this.say("Markdown Preview needs a Markdown file in the editor");
+    const existing = this.tabs.findIndex(
+      (tab) => tab.kind === "preview" && tab.source === source,
+    );
+    if (existing >= 0) return this.activate(existing);
+    const tab: Tab = {
+      id: nextTabId++,
+      kind: "preview",
+      source,
+      path: null,
+      title: `Preview ${source.title}`,
+      document: null,
+      highlight: null,
+      language: null,
+      scrollTop: 0,
+      scrollLeft: 0,
+      notice: null,
+      modified: 0,
+    };
+    this.tabs.splice(this.active + 1, 0, tab);
+    this.active++;
+    this.focus = "editor";
     this.changed();
   }
 
@@ -2546,6 +2580,11 @@ export class Workbench {
         run: () => this.withDocument((document) => document.moveLines(1)),
       },
       {
+        action: "markdownPreview",
+        label: "Markdown: Open Preview to the Side",
+        run: () => this.openPreview(),
+      },
+      {
         action: "goToSymbol",
         label: "Go to Symbol in Editor...",
         run: () => this.openPalette("@"),
@@ -2646,7 +2685,15 @@ export class Workbench {
       else if (this.focus === "explorer") this.explorerKey(key);
       else if (this.focus === "search") this.searchKey(key);
       else if (this.focus === "settings") this.settingsKey(key);
-      else if (this.tab?.document) this.editorKey(key);
+      else if (this.tab?.kind === "preview") {
+        const step = {
+          up: -1,
+          down: 1,
+          pageup: -this.view.rows,
+          pagedown: this.view.rows,
+        }[key.name];
+        if (step) this.tab.scrollTop = Math.max(0, this.tab.scrollTop + step);
+      } else if (this.tab?.document) this.editorKey(key);
       else if (key.name === "escape" || key.name === "tab")
         this.focus = "explorer";
     }

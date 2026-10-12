@@ -98,7 +98,8 @@
     "replaceInFiles": "ctrl+alt+t",
     "goToSymbol": "ctrl+]",
     "nextProblem": "f8",
-    "previousProblem": "shift+f8"
+    "previousProblem": "shift+f8",
+    "markdownPreview": "alt+v"
   },
   "themes": {
     "golden-brown": {

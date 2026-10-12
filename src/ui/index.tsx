@@ -22,6 +22,7 @@ import { fit, widthOf } from "@/text";
 import { availableUpdate, installUpdate } from "@/update";
 import type { Workbench } from "@/workbench";
 import { CodeView } from "./editor";
+import { MarkdownView } from "./markdown";
 import { SearchView } from "./search";
 import { SettingsPage } from "./settings";
 import { useTheme } from "./theme";
@@ -304,6 +305,14 @@ export const App = ({
               workbench={workbench}
               width={mainWidth}
               height={editorRows}
+            />
+          ) : tab.kind === "preview" ? (
+            <MarkdownView
+              workbench={workbench}
+              tab={tab}
+              width={mainWidth}
+              height={editorRows}
+              version={version}
             />
           ) : tab.kind === "settings" ? (
             <SettingsPage

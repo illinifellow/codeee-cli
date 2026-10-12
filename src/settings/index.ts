@@ -116,6 +116,12 @@ const KEYS: [string, string, string, string][] = [
   ],
   ["findPrevious", "Edit", "Find Previous", "Go to the previous match."],
   [
+    "markdownPreview",
+    "View",
+    "Open Markdown Preview",
+    "Show the Markdown file as a document beside it, following every edit.",
+  ],
+  [
     "goToSymbol",
     "Go",
     "Go to Symbol in Editor",
