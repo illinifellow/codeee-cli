@@ -309,6 +309,9 @@ const revealInFinder = (path: string) => {
 /** How often git's status is read again, for commits and staging made elsewhere (the watcher skips `.git`). */
 const GIT_POLL_MS = 3000;
 
+/** How many earlier queries the find widget keeps, as VS Code's find history. */
+const FIND_HISTORY = 50;
+
 /** How long the pointer rests before a tooltip shows, as VS Code's `editor.hover.delay`. */
 const HOVER_DELAY_MS = 300;
 
@@ -3286,10 +3289,31 @@ export class Workbench {
     this.changed();
   }
 
+  /** Earlier find and replace texts, oldest first, for ↑ and ↓ in the find widget, as VS Code's find history. */
+  private findHistory: { query: string[]; replacement: string[] } = {
+    query: [],
+    replacement: [],
+  };
+
+  /** Keeps the find widget's current texts in its history. */
+  private rememberFind() {
+    const find = this.find;
+    if (!find) return;
+    for (const key of ["query", "replacement"] as const) {
+      const value = find[key].value;
+      if (!value) continue;
+      this.findHistory[key] = [
+        ...this.findHistory[key].filter((entry) => entry !== value),
+        value,
+      ].slice(-FIND_HISTORY);
+    }
+  }
+
   private findKey(key: KeyEvent) {
     const find = this.find!;
     const binding = optionChord(key) ?? bindingOf(key);
     if (key.name === "escape") {
+      this.rememberFind();
       this.find = null;
       return;
     }
@@ -3302,10 +3326,31 @@ export class Workbench {
         find.replacing && find.field === "query" ? "replacement" : "query";
       return;
     }
-    if (key.name === "enter" || key.name === "down" || key.name === "up") {
-      if (find.field === "replacement" && key.name === "enter")
+    if (key.name === "up" || key.name === "down") {
+      const target = find.field === "replacement" ? "replacement" : "query";
+      const history = this.findHistory[target];
+      if (!history.length) return;
+      const position = history.indexOf(find[target].value);
+      const next =
+        key.name === "up"
+          ? position < 0
+            ? history.length - 1
+            : Math.max(0, position - 1)
+          : position < 0
+            ? -1
+            : position + 1;
+      find[target] = field(
+        next >= 0 && next < history.length ? history[next] : "",
+        true,
+      );
+      if (target === "query") this.updateMatches(true);
+      return;
+    }
+    if (key.name === "enter") {
+      this.rememberFind();
+      if (find.field === "replacement")
         return key.ctrl || key.alt ? this.replaceAll() : this.replaceOne();
-      return this.findStep(key.shift || key.name === "up" ? -1 : 1);
+      return this.findStep(key.shift ? -1 : 1);
     }
     const target = find.field === "replacement" ? "replacement" : "query";
     const next = editField(find[target], key);
