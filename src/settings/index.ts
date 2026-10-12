@@ -122,6 +122,12 @@ const KEYS: [string, string, string, string][] = [
     "Fold or unfold the block at the cursor.",
   ],
   [
+    "wordWrap",
+    "View",
+    "Toggle Word Wrap",
+    "Wrap long lines at the editor's width, or scroll them sideways.",
+  ],
+  [
     "reopenClosed",
     "View",
     "Reopen Closed Editor",
@@ -428,6 +434,15 @@ export const SETTINGS: SettingSpec[] = [
     "Sticky Scroll",
     "Shows the lines that open the blocks around the top of the editor, pinned while you scroll.",
     "boolean",
+  ),
+  setting(
+    "settings.wordWrap",
+    "Text Editor",
+    "Cursor",
+    "Word Wrap",
+    "Wraps lines at the editor's width instead of scrolling them sideways.",
+    "boolean",
+    { common: true },
   ),
   setting(
     "settings.wheelLines",

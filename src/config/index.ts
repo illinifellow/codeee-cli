@@ -54,6 +54,7 @@ export type KeyBindings = Record<
   | "comment"
   | "format"
   | "goToSymbol"
+  | "wordWrap"
   | "addNextOccurrence"
   | "toggleFold"
   | "reopenClosed"
@@ -120,6 +121,8 @@ export interface EditorSettings {
   guides: boolean;
   /** Shows the minimap at the editor's right edge. */
   minimap: boolean;
+  /** Wraps long lines at the editor's width, as VS Code's `editor.wordWrap`. */
+  wordWrap: boolean;
   /** Pins the lines that open the blocks around the top of the editor, as VS Code's sticky scroll. */
   stickyScroll: boolean;
   /** Lints JavaScript and TypeScript with the project's ESLint and shows the problems at line ends, as Error Lens. */

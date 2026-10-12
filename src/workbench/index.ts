@@ -107,6 +107,8 @@ export interface Tab {
   notice: string | null;
   /** A format before saving is running. */
   formatting?: boolean;
+  /** The line and first cell each editor row showed at the last draw, for clicks under word wrap. */
+  drawnRows?: { line: number; left: number }[];
   /** Lines whose blocks are folded. */
   folds?: Set<number>;
   /** How lines differ from the last commit, for the gutter. */
@@ -3122,6 +3124,12 @@ export class Workbench {
               });
           this.filterPalette();
         },
+      },
+      {
+        action: "wordWrap",
+        label: "View: Toggle Word Wrap",
+        run: () =>
+          this.setSetting("settings.wordWrap", !this.config.settings.wordWrap),
       },
       {
         action: "goToSymbol",

@@ -12,6 +12,7 @@
     "bracketPairColorization": true,
     "guides": true,
     "minimap": true,
+    "wordWrap": false,
     "stickyScroll": true,
     "eslint": true,
     "snippets": true,
@@ -102,7 +103,8 @@
     "markdownPreview": "alt+v",
     "reopenClosed": "alt+t",
     "toggleFold": "alt+k",
-    "addNextOccurrence": "ctrl+d"
+    "addNextOccurrence": "ctrl+d",
+    "wordWrap": "alt+z"
   },
   "themes": {
     "golden-brown": {

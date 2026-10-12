@@ -75,6 +75,33 @@ const contrastOn = (color: string) => {
     : "#ffffff";
 };
 
+/**
+ * Breaks a line for word wrap at spaces where it can, as VS Code's `wordWrap`.
+ * @returns the cell ranges of the rows the line takes; an empty line takes one
+ */
+export const wrapSegments = (
+  text: string,
+  width: number,
+  tabSize: number,
+): [number, number][] => {
+  const segments: [number, number][] = [];
+  let start = 0;
+  let lastSpace = -1;
+  let cell = 0;
+  for (const piece of placeText(text, tabSize)) {
+    if (piece.start + piece.width - start > width && piece.start > start) {
+      const end = lastSpace > start ? lastSpace : piece.start;
+      segments.push([start, end]);
+      start = end;
+      lastSpace = -1;
+    }
+    if (piece.source === " ") lastSpace = piece.start + 1;
+    cell = piece.start + piece.width;
+  }
+  segments.push([start, Math.max(start, cell)]);
+  return segments;
+};
+
 /** Cells the minimap takes, and the narrowest editor that shows one. */
 const MINIMAP_CELLS = 10;
 const MINIMAP_MIN_EDITOR = 60;
@@ -443,11 +470,64 @@ export const CodeView = memo(
       visible.findIndex((line) => line >= tab.scrollTop),
     );
     const rows: ReactNode[] = [];
+    const wrap = settings.wordWrap;
+    const entries: {
+      line: number;
+      left: number;
+      width: number;
+      first: boolean;
+      pinned: boolean;
+    }[] = sticky.map((line) => ({
+      line,
+      left: wrap ? 0 : tab.scrollLeft,
+      width: codeWidth,
+      first: true,
+      pinned: true,
+    }));
+    for (let index = first; entries.length < height; index++) {
+      const line = visible[index];
+      if (line === undefined) {
+        entries.push({
+          line: Number.MAX_SAFE_INTEGER,
+          left: 0,
+          width: codeWidth,
+          first: true,
+          pinned: false,
+        });
+        continue;
+      }
+      if (!wrap) {
+        entries.push({
+          line,
+          left: tab.scrollLeft,
+          width: codeWidth,
+          first: true,
+          pinned: false,
+        });
+        continue;
+      }
+      const segments = wrapSegments(
+        document.lines[line],
+        codeWidth,
+        document.indentation.size,
+      );
+      segments.forEach(([start, end], segment) =>
+        entries.push({
+          line,
+          left: start,
+          width: segment === segments.length - 1 ? codeWidth : end - start,
+          first: segment === 0,
+          pinned: false,
+        }),
+      );
+    }
+    tab.drawnRows = entries
+      .slice(0, height)
+      .map((entry) => ({ line: entry.line, left: entry.left }));
     for (let row = 0; row < height; row++) {
-      const pinned = row < sticky.length;
-      const line = pinned
-        ? sticky[row]
-        : (visible[first + row] ?? Number.MAX_SAFE_INTEGER);
+      const entry = entries[row];
+      const pinned = entry.pinned;
+      const line = entry.line;
       if (line >= document.lines.length) {
         rows.push(
           <Text key={row}>
@@ -487,9 +567,11 @@ export const CodeView = memo(
         : current && foldEnd(document.lines, line) !== null
           ? "▾"
           : " ";
-      const gutterText = settings.lineNumbers
-        ? `${foldMark}${number.padStart(gutter - workbench.theme.spacing.gutterPadding - 1)}${" ".repeat(workbench.theme.spacing.gutterPadding)}`
-        : " ";
+      const gutterText = !entry.first
+        ? " ".repeat(gutter)
+        : settings.lineNumbers
+          ? `${foldMark}${number.padStart(gutter - workbench.theme.spacing.gutterPadding - 1)}${" ".repeat(workbench.theme.spacing.gutterPadding)}`
+          : " ";
       const matches = find
         ? find.matches.flatMap((match, index) =>
             match.line === line
@@ -508,8 +590,8 @@ export const CodeView = memo(
         tab.highlight?.line(line) ?? null,
         line,
         {
-          width: codeWidth,
-          left: tab.scrollLeft,
+          width: entry.width,
+          left: entry.left,
           tabSize: document.indentation.size,
           defaultColor: palette.text,
           selections: ranges,
@@ -586,6 +668,11 @@ export const CodeView = memo(
             {change ? (change === "deleted" ? "▔" : "▎") : gutterText.slice(-1)}
           </Text>
           <PieceText pieces={pieces} />
+          {entry.width < codeWidth ? (
+            <Text backgroundColor={lineBackground}>
+              {" ".repeat(codeWidth - entry.width)}
+            </Text>
+          ) : null}
           {map ? (
             <Text
               color={palette.textMuted}
