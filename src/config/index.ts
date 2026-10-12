@@ -105,6 +105,12 @@ export interface EditorSettings {
   lineBlame: boolean;
   /** Draws colour literals (`#ff905c`, `rgb(…)`) on their own colour, as Color Highlight does. */
   colorDecorators: boolean;
+  /** Colours matching brackets by depth, as VS Code's `editor.bracketPairColorization`. */
+  bracketPairColorization: boolean;
+  /** Draws indent guides. */
+  guides: boolean;
+  /** Shows the minimap at the editor's right edge. */
+  minimap: boolean;
   autoIndent: boolean;
   autoClosingBrackets: boolean;
   trimTrailingWhitespace: boolean;

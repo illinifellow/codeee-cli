@@ -1103,6 +1103,30 @@ export class Document {
     if (match) this.setCursor(match[1]);
   }
 
+  private depthCache: { version: number; depths: number[] } = {
+    version: -1,
+    depths: [0],
+  };
+
+  /**
+   * The bracket nesting depth at the start of a line, for bracket pair colours; brackets inside quotes on a line are
+   * skipped. Computed once per text version, as far as asked.
+   * @param line a line index
+   * @returns how many brackets are open when the line starts
+   */
+  depthAt(line: number) {
+    if (this.depthCache.version !== this.version)
+      this.depthCache = { version: this.version, depths: [0] };
+    const depths = this.depthCache.depths;
+    while (depths.length <= line && depths.length <= this.lines.length) {
+      const index = depths.length - 1;
+      depths.push(
+        Math.max(0, depths[index] + bracketBalance(this.lines[index])),
+      );
+    }
+    return depths[Math.min(line, depths.length - 1)];
+  }
+
   /**
    * Replaces the whole text in one undo step, keeping the cursor on its line, as Format Document does.
    * @param text the new contents
@@ -1137,6 +1161,34 @@ export class Document {
       this.replaceBlock(this.lines.length, 0, [""], this.selection);
   }
 }
+
+/**
+ * Walks a line's brackets outside quotes.
+ * @param text one line
+ * @param visit receives each bracket's column and whether it opens
+ */
+export const eachBracket = (
+  text: string,
+  visit: (column: number, opens: boolean) => void,
+) => {
+  let quote = "";
+  for (let column = 0; column < text.length; column++) {
+    const character = text[column];
+    if (quote) {
+      if (character === "\\") column++;
+      else if (character === quote) quote = "";
+    } else if (QUOTES.includes(character)) quote = character;
+    else if (OPENING.includes(character)) visit(column, true);
+    else if (CLOSING.includes(character)) visit(column, false);
+  }
+};
+
+/** @returns opened minus closed brackets of a line, outside quotes */
+const bracketBalance = (text: string) => {
+  let balance = 0;
+  eachBracket(text, (_column, opens) => void (balance += opens ? 1 : -1));
+  return balance;
+};
 
 /** @returns the display width of a line in cells */
 export const lineWidth = (text: string, tabSize: number) =>

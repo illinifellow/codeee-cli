@@ -9,6 +9,9 @@
     "highlightLine": true,
     "lineBlame": true,
     "colorDecorators": true,
+    "bracketPairColorization": true,
+    "guides": true,
+    "minimap": true,
     "autoIndent": true,
     "autoClosingBrackets": true,
     "trimTrailingWhitespace": false,
@@ -113,7 +116,9 @@
         "folder": "#e4e4e4",
         "icon": "#8f8f8f",
         "modified": "#ebcb8b",
-        "added": "#a3be8c"
+        "added": "#a3be8c",
+        "brackets": ["#ffd700", "#da70d6", "#179fff"],
+        "guide": "#3a3a3a"
       },
       "glyphs": {
         "folderOpen": "\u25be",
@@ -139,7 +144,8 @@
         "update": "\u27f3",
         "cursor": "\u258f",
         "dropdown": "\u25be",
-        "settings": "\u2699"
+        "settings": "\u2699",
+        "guide": "\u2502"
       },
       "spacing": {
         "indent": 2,
@@ -181,7 +187,9 @@
         "folder": "#2b2823",
         "icon": "#6b6559",
         "modified": "#a3520b",
-        "added": "#2f7a4d"
+        "added": "#2f7a4d",
+        "brackets": ["#0431fa", "#319331", "#7b3814"],
+        "guide": "#d9d5ca"
       },
       "glyphs": {
         "folderOpen": "\u25be",
@@ -207,7 +215,8 @@
         "update": "\u27f3",
         "cursor": "\u258f",
         "dropdown": "\u25be",
-        "settings": "\u2699"
+        "settings": "\u2699",
+        "guide": "\u2502"
       },
       "spacing": {
         "indent": 2,

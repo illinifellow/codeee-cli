@@ -7,7 +7,13 @@
  */
 import { Box, Text } from "ink";
 import { memo, type ReactNode } from "react";
-import type { Position } from "@/buffer";
+import {
+  cellOf,
+  eachBracket,
+  indentOf,
+  type Document,
+  type Position,
+} from "@/buffer";
 import type { Segment } from "@/highlight";
 import { Clickable, type LocalMouseEvent } from "@/mouse/regions";
 import { fit, placeText, widthOf } from "@/text";
@@ -67,6 +73,45 @@ const contrastOn = (color: string) => {
     : "#ffffff";
 };
 
+/** @returns each bracket's colour by its nesting depth, for one line */
+const bracketColorsOf = (
+  document: Document,
+  line: number,
+  colors: string[],
+) => {
+  const result = new Map<number, string>();
+  let depth = document.depthAt(line);
+  eachBracket(document.lines[line], (column, opens) => {
+    if (!opens) depth = Math.max(0, depth - 1);
+    result.set(column, colors[depth % colors.length]);
+    if (opens) depth++;
+  });
+  return result;
+};
+
+/**
+ * @returns the cells of a line's indent guides: every indent stop inside its leading blanks; a blank line takes the
+ *   guides of the nearest non-blank line above, so guides run through empty lines
+ */
+const guideCells = (
+  text: string,
+  size: number,
+  line: number,
+  document: Document,
+) => {
+  let source = text;
+  for (let above = line; !source.trim() && above > 0; )
+    source = document.lines[--above];
+  const indent = cellOf(indentOf(source), indentOf(source).length, size);
+  const limit = text.trim()
+    ? cellOf(indentOf(text), indentOf(text).length, size)
+    : indent;
+  const cells: number[] = [];
+  for (let cell = 0; cell + size <= Math.min(indent, limit); cell += size)
+    cells.push(cell);
+  return cells;
+};
+
 const compare = (a: Position, b: Position) =>
   a.line - b.line || a.column - b.column;
 
@@ -88,6 +133,11 @@ const codeRow = (
     brackets: number[];
     cursor: number | null;
     lineBackground?: string;
+    /** Colours of brackets by column, by nesting depth. */
+    bracketColors: Map<number, string>;
+    /** Cells where indent guides are drawn, inside the leading blanks. */
+    guides: number[];
+    guide: { glyph: string; color: string };
     /** Colour literals of the line, each drawn on its own colour. */
     swatches: { start: number; end: number; color: string }[];
     /** Text drawn after the line's end in the given colour, as the current line blame. */
@@ -154,8 +204,13 @@ const codeRow = (
             : brackets.includes(column)
               ? colors.bracket
               : (swatch?.color ?? options.lineBackground);
-      const visible =
-        placed.start < left || end > left + width
+      const guide =
+        placed.source === " " &&
+        options.guides.includes(placed.start) &&
+        !atCursor;
+      const visible = guide
+        ? options.guide.glyph
+        : placed.start < left || end > left + width
           ? " ".repeat(
               Math.min(end, left + width) - Math.max(placed.start, left),
             )
@@ -166,7 +221,11 @@ const codeRow = (
           ? colors.cursorText
           : swatch && background === swatch.color
             ? contrastOn(swatch.color)
-            : (segment?.color ?? options.defaultColor),
+            : guide
+              ? options.guide.color
+              : (options.bracketColors.get(column) ??
+                segment?.color ??
+                options.defaultColor),
         background,
         bold: segment?.bold,
         italic: segment?.italic,
@@ -260,7 +319,7 @@ export const CodeView = memo(
     focused: boolean;
     version: number;
   }) => {
-    const { colors: palette } = useTheme();
+    const { colors: palette, glyphs } = useTheme();
     const document = tab.document!;
     const { settings } = workbench.config;
     const gutter = workbench.gutterWidth(tab);
@@ -323,6 +382,18 @@ export const CodeView = memo(
             : [],
           cursor: focused && current ? document.cursor.column : null,
           lineBackground,
+          bracketColors: settings.bracketPairColorization
+            ? bracketColorsOf(document, line, palette.brackets)
+            : new Map(),
+          guides: settings.guides
+            ? guideCells(
+                document.lines[line],
+                document.indentation.size,
+                line,
+                document,
+              )
+            : [],
+          guide: { glyph: glyphs.guide, color: palette.guide },
           swatches: settings.colorDecorators
             ? colorSwatches(document.lines[line])
             : [],

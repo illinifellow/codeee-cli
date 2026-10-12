@@ -46,6 +46,10 @@ export interface ColorTokens {
   /** Unsaved files. */
   modified: string;
   added: string;
+  /** Bracket pair colours by depth, cycled. */
+  brackets: string[];
+  /** Indent guides. */
+  guide: string;
 }
 
 /** Characters for icons and marks. */
@@ -73,6 +77,7 @@ export interface GlyphTokens {
   replaceAll: string;
   error: string;
   update: string;
+  guide: string;
   dropdown: string;
   /** The settings tab's icon. */
   settings: string;
@@ -237,6 +242,18 @@ export const editorColors = (
       base.added,
       "gitDecoration.untrackedResourceForeground",
       "editorGutter.addedBackground",
+    ),
+    brackets: base.brackets.map(
+      (color, index) =>
+        opaque(
+          vs[`editorBracketHighlight.foreground${index + 1}`],
+          background,
+        ) ?? color,
+    ),
+    guide: pick(
+      base.guide,
+      "editorIndentGuide.background1",
+      "editorIndentGuide.background",
     ),
   };
 };
