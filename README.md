@@ -28,6 +28,10 @@ codeee is the sibling of [gittt](https://github.com/illinifellow/gittt-cli): git
 - **As VS Code draws code:** indent guides, bracket pair colours, the minimap, sticky scroll of the enclosing blocks, git change marks beside the line numbers.
 - **Go to Symbol:** `@` in Quick Open lists the file's functions, classes, headings and rules; `F8` walks the problems.
 - **Auto save** after a delay or on focus change, as `files.autoSave`.
+- **Code intelligence without a language server:** Go to Definition (`F12`) in the file and across the folder, Rename Symbol (`F2`) in the file, enclosing symbols in the breadcrumbs, code folding by indentation.
+- **HTML and JSX:** Emmet abbreviations on Tab (`ul>li.item$*3`), closing tags typed for you.
+- **Small things VS Code users expect:** Reopen Closed Editor, Change Language Mode and indentation from the status bar, type a name in the explorer to jump to it, whitespace shown inside selections.
+- **Option as Alt** even when the terminal sends Option as text, so every `⌥` shortcut works in a stock iTerm2 or Terminal.
 - **Settings page** like VS Code's: search, table of contents, every option with its description and control, modified marks, reset, and the JSON file one click away.
 - **Mouse everywhere:** click, double-click to select a word, drag to select, wheel, right-click menus, a draggable explorer edge.
 
@@ -78,6 +82,9 @@ codeee src/app.ts   # opens the file's folder with the file in a tab
 | `^\`                | jump to the matching bracket                                |
 | `⌥⇧F`               | Format Document                                             |
 | `^]`                | Go to Symbol                                                |
+| `F12` `F2`          | go to definition, rename symbol                             |
+| `⌥K`                | fold or unfold the block at the cursor                      |
+| `⌥T`                | reopen closed editor                                        |
 | `F8` `⇧F8`          | next, previous problem                                      |
 | `⌥V`                | Markdown Preview                                            |
 | `Tab`               | expand a snippet prefix, else indent                        |
