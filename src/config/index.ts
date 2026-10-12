@@ -54,6 +54,13 @@ export type KeyBindings = Record<
   | "comment"
   | "format"
   | "goToSymbol"
+  | "scm"
+  | "outline"
+  | "addCursorAbove"
+  | "addCursorBelow"
+  | "expandSelection"
+  | "shrinkSelection"
+  | "saveAll"
   | "blockComment"
   | "goBack"
   | "goForward"
@@ -127,6 +134,8 @@ export interface EditorSettings {
   guides: boolean;
   /** Shows the minimap at the editor's right edge. */
   minimap: boolean;
+  /** Shows the path and symbols above the editor, as `breadcrumbs.enabled`. */
+  breadcrumbs: boolean;
   /** Wraps long lines at the editor's width, as VS Code's `editor.wordWrap`. */
   wordWrap: boolean;
   /** `none`, `selection` or `all`, as VS Code's `editor.renderWhitespace`. */

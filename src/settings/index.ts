@@ -148,6 +148,43 @@ const KEYS: [string, string, string, string][] = [
     "Toggle Block Comment",
     "Wrap the selection in a block comment, or unwrap it.",
   ],
+  ["saveAll", "File", "Save All", "Save every file with unsaved changes."],
+  [
+    "addCursorAbove",
+    "Selection",
+    "Add Cursor Above",
+    "Add a cursor on the line above.",
+  ],
+  [
+    "addCursorBelow",
+    "Selection",
+    "Add Cursor Below",
+    "Add a cursor on the line below.",
+  ],
+  [
+    "expandSelection",
+    "Selection",
+    "Expand Selection",
+    "Grow the selection to the word, the brackets, the line, the block, the file.",
+  ],
+  [
+    "shrinkSelection",
+    "Selection",
+    "Shrink Selection",
+    "Undo the last Expand Selection step.",
+  ],
+  [
+    "scm",
+    "View",
+    "Show Source Control",
+    "Show the changed files, stage them and commit.",
+  ],
+  [
+    "outline",
+    "View",
+    "Show Outline",
+    "Show the symbols of the file in the side bar.",
+  ],
   [
     "reopenClosed",
     "View",
@@ -548,6 +585,14 @@ export const SETTINGS: SettingSpec[] = [
     },
   ),
   setting(
+    "settings.breadcrumbs",
+    "Workbench",
+    "Appearance",
+    "Breadcrumbs",
+    "Enable/disable navigation breadcrumbs.",
+    "boolean",
+  ),
+  setting(
     "settings.wheelLines",
     "Text Editor",
     "Cursor",
@@ -788,8 +833,26 @@ export const pageRows = (category: string | null, query: string): PageRow[] => {
         .toLowerCase()
         .includes(word),
     );
+  const titleScore = (spec: SettingSpec) =>
+    words.every((word) => spec.title.toLowerCase().includes(word))
+      ? 2
+      : words.every((word) =>
+            `${spec.section} ${spec.title}`.toLowerCase().includes(word),
+          )
+        ? 1
+        : 0;
+  const best = (name: string) =>
+    Math.max(
+      0,
+      ...SETTINGS.filter((spec) => spec.category === name && matches(spec)).map(
+        titleScore,
+      ),
+    );
+  const order = words.length
+    ? [...CATEGORIES].sort((a, b) => best(b.name) - best(a.name))
+    : CATEGORIES;
   const rows: PageRow[] = [];
-  for (const { name, sections } of CATEGORIES) {
+  for (const { name, sections } of order) {
     if (category && category !== name) continue;
     if (name === "Commonly Used") {
       if (words.length) continue;
@@ -805,8 +868,27 @@ export const pageRows = (category: string | null, query: string): PageRow[] => {
     );
     if (!inCategory.length) continue;
     rows.push({ kind: "heading", text: name, level: 1 });
-    for (const section of sections) {
-      const specs = inCategory.filter((spec) => spec.section === section);
+    const sectionOrder = words.length
+      ? [...sections].sort(
+          (a, b) =>
+            Math.max(
+              0,
+              ...inCategory
+                .filter((spec) => spec.section === b)
+                .map(titleScore),
+            ) -
+            Math.max(
+              0,
+              ...inCategory
+                .filter((spec) => spec.section === a)
+                .map(titleScore),
+            ),
+        )
+      : sections;
+    for (const section of sectionOrder) {
+      const specs = inCategory
+        .filter((spec) => spec.section === section)
+        .sort((a, b) => (words.length ? titleScore(b) - titleScore(a) : 0));
       if (!specs.length) continue;
       rows.push(
         { kind: "heading", text: section, level: 2 },

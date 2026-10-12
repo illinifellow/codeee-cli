@@ -9,6 +9,7 @@ import { Box, Text } from "ink";
 import { memo, type ReactNode } from "react";
 import {
   cellOf,
+  columnAt,
   eachBracket,
   indentOf,
   type Document,
@@ -636,7 +637,7 @@ export const CodeView = memo(
       const gutterText = !entry.first
         ? " ".repeat(gutter)
         : settings.lineNumbers
-          ? `${foldMark}${number.padStart(gutter - workbench.theme.spacing.gutterPadding - 1)}${" ".repeat(workbench.theme.spacing.gutterPadding)}`
+          ? ` ${number.padStart(gutter - workbench.theme.spacing.gutterPadding - 1)}${foldMark}${" ".repeat(workbench.theme.spacing.gutterPadding - 1)}`
           : " ";
       const matches = find
         ? find.matches.flatMap((match, index) =>
@@ -756,6 +757,93 @@ export const CodeView = memo(
         </Box>,
       );
     }
+    const suggest = focused ? workbench.suggest : null;
+    let suggestBox: ReactNode = null;
+    if (suggest) {
+      const row = entries.findIndex(
+        (entry) => entry.line === suggest.start.line && !entry.pinned,
+      );
+      if (row >= 0) {
+        const cell =
+          cellOf(
+            document.lines[suggest.start.line],
+            suggest.start.column,
+            document.indentation.size,
+          ) - entries[row].left;
+        const boxWidth = Math.min(
+          width - 2,
+          Math.max(
+            24,
+            ...suggest.items.map(
+              (item) =>
+                item.label.length + 4 + Math.min(item.detail.length, 30),
+            ),
+          ),
+        );
+        const below = row + 1 + suggest.items.length + 2 <= height;
+        const top = below
+          ? row + 1
+          : Math.max(0, row - suggest.items.length - 2);
+        suggestBox = (
+          <Box
+            position="absolute"
+            marginTop={top}
+            marginLeft={Math.max(
+              0,
+              Math.min(gutter + cell - 1, width - boxWidth),
+            )}
+            width={boxWidth}
+            flexDirection="column"
+            borderStyle="round"
+            borderColor={palette.border}
+            backgroundColor={palette.background}
+            borderBackgroundColor={palette.background}
+          >
+            {suggest.items.map((item, index) => (
+              <Clickable
+                key={`${item.kind}-${item.label}`}
+                height={1}
+                onClick={() => workbench.acceptSuggestion(index)}
+              >
+                <Text
+                  backgroundColor={
+                    index === suggest.cursor
+                      ? palette.selection
+                      : palette.background
+                  }
+                >
+                  <Text
+                    color={
+                      item.kind === "snippet"
+                        ? palette.accent
+                        : palette.textMuted
+                    }
+                  >
+                    {item.kind === "snippet" ? " ◫ " : " ≡ "}
+                  </Text>
+                  <Text color={palette.text}>
+                    {fit(
+                      item.label,
+                      Math.max(
+                        1,
+                        boxWidth - 6 - Math.min(item.detail.length, 30),
+                      ),
+                    )}
+                  </Text>
+                  <Text color={palette.textMuted}>
+                    {fit(
+                      item.detail ? ` ${item.detail}` : "",
+                      Math.min(item.detail.length + 1, 30),
+                    )}
+                  </Text>
+                  <Text> </Text>
+                </Text>
+              </Clickable>
+            ))}
+          </Box>
+        );
+      }
+    }
     const pointAt = (event: LocalMouseEvent) =>
       workbench.positionAt(event.localY, event.localX);
     return (
@@ -764,7 +852,10 @@ export const CodeView = memo(
         height={height}
         flexDirection="column"
         onPress={(event) => {
-          if (event.localX === 0 && event.localY >= sticky.length) {
+          if (
+            event.localX === gutter - workbench.theme.spacing.gutterPadding &&
+            event.localY >= sticky.length
+          ) {
             const target = visible[first + event.localY];
             if (
               target !== undefined &&
@@ -796,6 +887,7 @@ export const CodeView = memo(
             scrollTo(event.localY);
             return (move) => scrollTo(move.localY);
           }
+          workbench.suggest = null;
           const group = workbench.groups.findIndex((entry) =>
             entry.tabs.includes(tab),
           );
@@ -836,6 +928,56 @@ export const CodeView = memo(
             document.setCursor(position);
             void workbench.goToDefinition();
             return;
+          }
+          if (event.alt && event.shift) {
+            const anchorCell = cellOf(
+              document.lines[position.line],
+              position.column,
+              document.indentation.size,
+            );
+            const boxTo = (move: LocalMouseEvent) => {
+              const target = pointAt(move);
+              if (!target) return;
+              const targetCell = cellOf(
+                document.lines[target.line],
+                target.column,
+                document.indentation.size,
+              );
+              const step = target.line >= position.line ? 1 : -1;
+              const selections = [];
+              for (
+                let line = position.line;
+                line !== target.line + step;
+                line += step
+              ) {
+                const text = document.lines[line];
+                selections.push({
+                  anchor: {
+                    line,
+                    column: columnAt(
+                      text,
+                      anchorCell,
+                      document.indentation.size,
+                    ),
+                  },
+                  cursor: {
+                    line,
+                    column: columnAt(
+                      text,
+                      targetCell,
+                      document.indentation.size,
+                    ),
+                  },
+                });
+              }
+              const last = selections.pop()!;
+              document.extras = selections;
+              document.anchor = last.anchor;
+              document.cursor = last.cursor;
+              workbench.changed();
+            };
+            boxTo(event);
+            return boxTo;
           }
           if (event.alt) {
             document.extras.push({
@@ -878,6 +1020,7 @@ export const CodeView = memo(
         }}
       >
         {rows}
+        {suggestBox}
       </Clickable>
     );
   },

@@ -9,20 +9,22 @@
 [![Node](https://img.shields.io/badge/node-%3E%3D22.15-88bd66)](https://nodejs.org)
 [![Buy me a coffee](https://img.shields.io/badge/Buy%20me%20a%20coffee-ffdd04?logo=buymeacoffee&logoColor=000)](https://buymeacoffee.com/illinifellow)
 
-![codeee in the dark golden-brown theme: the explorer with the source folders open, two tabs, TypeScript highlighted in the VS Code theme and the blame of the cursor line](docs/dark.png)
+![codeee in the dark golden-brown theme: the explorer, two editor groups side by side with sticky scroll, fold arrows, indent guides, the minimap and the blame of the cursor line](docs/dark.png)
 
 codeee is the sibling of [gittt](https://github.com/illinifellow/gittt-cli): gittt is a Sourcetree for the terminal, codeee is a VS Code for it. It is an editor and nothing more: no extensions, no built-in terminal, no debugger. What VS Code users reach for every minute is built in.
 
-![The same editor in the light milk-and-honey theme: the Search view with 53 results in 5 files beside the code](docs/light.png)
+![The same editor in the light milk-and-honey theme: the Search view with its results beside the code](docs/light.png)
 
 ## Features
 
 - **Explorer:** the folder's tree with the icons of your VS Code icon theme, git states (modified, untracked, added, deleted, conflicted, ignored) and unsaved files; new file, new folder, rename, delete to the Trash, copy path.
 - **Tabs and Quick Open:** files open in tabs and come back next time with their cursor where you left it; `^P` finds any file by fuzzy name, `:` goes to a line, `>` runs any command.
 - **Highlighting:** every language shiki bundles (over 240), found the way VS Code finds them (its installed language extensions, file names, shebangs), coloured by your VS Code theme with your `editor.tokenColorCustomizations`.
-- **Editor groups:** split the editor (View: Split Editor), drag tabs between groups or to the right edge for a new one; tabs wrap onto more rows when they do not fit.
+- **Editor groups:** split the editor right or down, drag tabs between groups or to the right edge for a new one, toggle the layout; tabs wrap onto more rows when they do not fit. Zen Mode hides everything but the code.
 - **Hot exit:** unsaved files are backed up while you work and come back the next time, so quitting never asks and a crash loses nothing.
 - **Explorer as in VS Code:** compact folders, a single click opens a preview tab, drag files between folders, Enter renames, Backspace deletes to the Trash.
+- **IntelliSense:** suggestions as you type from the words of your open files and from snippets; ↑↓ to choose, Tab or Enter to insert.
+- **Source Control:** staged and unstaged changes, + and − to stage, a message box and Commit, a click opens the changes (`⌥G`).
 - **Multiple cursors:** `^D` adds the next occurrence of the selection, `⌥`-click adds a cursor; typing, Backspace, Delete, arrows and Home/End act on every one. Occurrences of the word at the cursor are highlighted.
 - **Editing as in VS Code:** auto-indent, auto-closing brackets and quotes, word moves and deletes, Tab and Shift+Tab on selections, line comments, move, copy and delete lines, whole-line copy and paste, undo and redo grouped by typing.
 - **Find and replace:** in the file with case, whole-word and regular-expression options; across the folder in the Search view with files to include and exclude, and Replace All.
@@ -39,7 +41,9 @@ codeee is the sibling of [gittt](https://github.com/illinifellow/gittt-cli): git
 - **Navigation:** Go Back and Go Forward (`^⌥←` `^⌥→`), `^`-click goes to a definition, a click on the breadcrumbs lists the file's symbols, the Outline view (View: Show Outline), the Problems list (View: Show Problems).
 - **Git:** Open Changes shows the file's changes against the last commit inline.
 - **Menus as in VS Code:** tabs (Close Others, Close to the Right, Close Saved, Close All, Split Right, Reveal in Finder), the editor (Go to Definition, Rename Symbol, Change All Occurrences, Format Document), the explorer (Find in Folder, Copy, Paste, Reveal in Finder) and search results (Replace, Dismiss, Copy All); a middle click closes a tab.
-- **More editing:** Format Selection, Toggle Block Comment (`⌥⇧A`), Find in Selection (`⌥L`), recently used commands first in `>`, `@modified` on the settings page.
+- **Selections:** Expand and Shrink Selection (`^⇧→` `^⇧←`), cursors above and below (`^⌥↑` `^⌥↓`), box selection with `⇧⌥`-drag.
+- **Files:** Save All (`⌥S`), Save As, Revert File, Compare with Saved, Copy Path, end of line and indentation conversion.
+- **More editing:** Format Selection, Toggle Block Comment (`⌥⇧A`), Find in Selection (`⌥L`), recently used commands first in `>`, `@modified` on the settings page, key bindings recorded by pressing them.
 - **Small things VS Code users expect:** Reopen Closed Editor, Change Language Mode and Change Indentation commands, type a name in the explorer to jump to it, whitespace shown inside selections.
 - **Option as Alt** even when the terminal sends Option as text, so every `⌥` shortcut works in a stock iTerm2 or Terminal.
 - **Settings page** like VS Code's: search, table of contents, every option with its description and control, modified marks, reset, and the JSON file one click away.

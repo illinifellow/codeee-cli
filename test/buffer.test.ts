@@ -219,3 +219,26 @@ describe("line transforms", () => {
     expect(document.text()).toBe("A B");
   });
 });
+
+describe("expand selection and vertical cursors", () => {
+  it("grows from the word to the brackets' inside, the brackets, the line, then shrinks back", () => {
+    const document = open("call(alpha, beta);");
+    document.setCursor({ line: 0, column: 6 });
+    document.expandSelection();
+    expect(document.selectedText()).toBe("alpha");
+    document.expandSelection();
+    expect(document.selectedText()).toBe("alpha, beta");
+    document.expandSelection();
+    expect(document.selectedText()).toBe("(alpha, beta)");
+    document.shrinkSelection();
+    expect(document.selectedText()).toBe("alpha, beta");
+  });
+
+  it("adds a cursor below at the same cell", () => {
+    const document = open("abc\nabc");
+    document.setCursor({ line: 0, column: 2 });
+    document.addCursorVertical(1);
+    document.editAll("type", "X");
+    expect(document.lines).toEqual(["abXc", "abXc"]);
+  });
+});

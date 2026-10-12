@@ -65,7 +65,12 @@ import { foldEnd, foldsHiding, visibleLines } from "@/folding";
 import { readBackups, removeBackup, writeBackup } from "@/backup";
 import { formatText } from "@/format";
 import { lintText, type Diagnostic } from "@/lint";
-import { expandSnippet, findSnippet, loadSnippets } from "@/snippets";
+import {
+  expandSnippet,
+  findSnippet,
+  loadSnippets,
+  snippetsFor,
+} from "@/snippets";
 import { fileSymbols, type FileSymbol } from "@/symbols";
 import {
   replaceInFile,
@@ -75,6 +80,9 @@ import {
   type SearchMatch,
 } from "@/search";
 import {
+  readScm,
+  scmAction,
+  type ScmEntry,
   blameLine,
   diffLines,
   inlineDiff,
@@ -98,7 +106,7 @@ import {
 } from "@/settings";
 
 /** Which part of the screen has the keyboard. */
-export type Focus = "editor" | "explorer" | "settings" | "search";
+export type Focus = "editor" | "explorer" | "settings" | "search" | "scm";
 
 /** An editor tab. */
 export interface Tab {
@@ -283,6 +291,9 @@ const revealInFinder = (path: string) => {
 /** How often git's status is read again, for commits and staging made elsewhere (the watcher skips `.git`). */
 const GIT_POLL_MS = 3000;
 
+/** The most suggestions the list shows, as VS Code's suggest widget. */
+const SUGGESTIONS = 12;
+
 /** A cursor move farther than this many lines counts as a jump for Go Back. */
 const NAVIGATION_LINES = 10;
 
@@ -313,7 +324,12 @@ export class Workbench {
   /** The group with the keyboard. */
   group = 0;
   /** The screen cells each group spans, set by the screen, for dropping dragged tabs. */
-  groupBounds: { left: number; right: number }[] = [];
+  groupBounds: { left: number; right: number; top: number; bottom: number }[] =
+    [];
+  /** Zen Mode hides the explorer, the toolbar and the breadcrumbs. */
+  zen = false;
+  /** Groups side by side, or stacked, as View: Toggle Vertical/Horizontal Editor Layout. */
+  layout: "horizontal" | "vertical" = "horizontal";
 
   /** @returns the tabs of the active group */
   get tabs() {
@@ -441,7 +457,7 @@ export class Workbench {
   };
   status: Status | null = null;
   /** Which view the side bar shows. */
-  side: "explorer" | "search" | "outline" = "explorer";
+  side: "explorer" | "search" | "outline" | "scm" = "explorer";
   search: SearchView = {
     query: field(),
     replacement: field(),
@@ -540,6 +556,7 @@ export class Workbench {
 
   /** Reads git's status again in the background; a request during a read runs once more after it. */
   refreshGit() {
+    if (this.side === "scm") void this.refreshScm();
     if (this.gitReading) {
       this.gitAgain = true;
       return;
@@ -1459,6 +1476,17 @@ export class Workbench {
           label: "Copy Relative Path",
           run: () => void this.copy(relativeTo(this.root, row.path)),
         },
+        ...(row.folder
+          ? []
+          : [
+              {
+                label: "Open to the Side",
+                run: () => {
+                  this.open(row.path);
+                  this.splitEditor();
+                },
+              },
+            ]),
         { label: "Reveal in Finder", run: () => revealInFinder(row.path) },
         ...(row.folder
           ? [
@@ -2136,17 +2164,28 @@ export class Workbench {
   }
 
   /** Opens the changes of the active file against its last commit in a tab, as VS Code's Open Changes. */
-  async openChanges() {
+  async openChanges(saved = false) {
     const source = this.tab?.kind === "diff" ? this.tab.source : this.tab;
     if (!source?.path || !source.document)
       return this.say("Open Changes needs a file in a git repository");
-    const rows = await inlineDiff(source.path, source.document.text());
+    const disk = saved
+      ? readText(source.path, this.config.limits.maxFileMegabytes)
+      : null;
+    const rows = await inlineDiff(
+      source.path,
+      source.document.text(),
+      3,
+      disk?.kind === "text" ? disk.text : undefined,
+    );
     if (!rows) return this.say(`${source.title} is not tracked by git`);
     const existing = this.tabs.findIndex(
       (tab) => tab.kind === "diff" && tab.source === source,
     );
     if (existing >= 0) {
       this.tabs[existing].diff = rows;
+      this.tabs[existing].title = saved
+        ? `${source.title} (Saved ↔ Editor)`
+        : `${source.title} (Working Tree)`;
       return this.activate(existing);
     }
     const tab: Tab = {
@@ -2155,7 +2194,9 @@ export class Workbench {
       source,
       diff: rows,
       path: null,
-      title: `${source.title} (Working Tree)`,
+      title: saved
+        ? `${source.title} (Saved ↔ Editor)`
+        : `${source.title} (Working Tree)`,
       document: null,
       highlight: null,
       language: null,
@@ -2168,6 +2209,157 @@ export class Workbench {
     this.active++;
     this.focus = "editor";
     this.changed();
+  }
+
+  /** The Source Control view: changed files, the commit message, which row has the keyboard. */
+  scm: {
+    root: string;
+    entries: ScmEntry[];
+    message: Field;
+    cursor: number;
+    typing: boolean;
+  } | null = null;
+
+  /** Shows the Source Control view and reads the repository's changes. */
+  async openScm() {
+    this.side = "scm";
+    this.focus = "scm";
+    if (!this.config.settings.explorer)
+      this.setSetting("settings.explorer", true);
+    await this.refreshScm();
+    if (this.scm) this.scm.typing = true;
+    this.changed();
+  }
+
+  /** Reads the changed files again, keeping the message and cursor. */
+  async refreshScm() {
+    const found = await readScm(this.root);
+    if (!found) {
+      this.scm = null;
+      return this.changed();
+    }
+    this.scm = {
+      ...found,
+      message: this.scm?.message ?? field(),
+      cursor: Math.min(
+        this.scm?.cursor ?? 0,
+        Math.max(0, found.entries.length - 1),
+      ),
+      typing: this.scm?.typing ?? true,
+    };
+    this.changed();
+  }
+
+  /** @returns the Source Control rows in display order: staged first, then changes */
+  scmRows() {
+    const entries = this.scm?.entries ?? [];
+    return [
+      ...entries.filter((entry) => entry.staged),
+      ...entries.filter((entry) => !entry.staged),
+    ];
+  }
+
+  /**
+   * Stages or unstages a changed file, as the + and − buttons do.
+   * @param entry the row
+   */
+  async toggleStage(entry: ScmEntry) {
+    if (!this.scm) return;
+    const error = entry.staged
+      ? await scmAction(this.scm.root, [
+          "restore",
+          "--staged",
+          "--",
+          entry.path,
+        ])
+      : await scmAction(this.scm.root, ["add", "--", entry.path]);
+    if (error) this.say(error, true);
+    await this.refreshScm();
+    this.refreshGit();
+  }
+
+  /** Commits the staged changes with the message; with nothing staged, offers to stage everything first, as VS Code. */
+  async commitScm() {
+    const scm = this.scm;
+    if (!scm) return;
+    const message = scm.message.value.trim();
+    if (!message) return this.say("Please provide a commit message", true);
+    const run = async () => {
+      const error = await scmAction(scm.root, ["commit", "-m", message]);
+      if (error) return this.say(error, true);
+      scm.message = field();
+      this.say(`Committed: ${message}`);
+      await this.refreshScm();
+      this.refreshGit();
+    };
+    if (scm.entries.some((entry) => entry.staged)) return run();
+    this.ask({
+      title: "There are no staged changes to commit.",
+      message:
+        "Would you like to stage all your changes and commit them directly?",
+      buttons: [
+        {
+          label: "Yes",
+          primary: true,
+          run: () => {
+            void scmAction(scm.root, ["add", "-A"]).then((error) =>
+              error ? this.say(error, true) : run(),
+            );
+          },
+        },
+        { label: "Cancel", run: () => undefined },
+      ],
+    });
+  }
+
+  private scmKey(key: KeyEvent) {
+    const scm = this.scm;
+    if (!scm) return;
+    const rows = this.scmRows();
+    if (scm.typing) {
+      if (key.name === "enter") return void this.commitScm();
+      if (key.name === "down" || key.name === "tab") {
+        scm.typing = false;
+        scm.cursor = 0;
+        return;
+      }
+      if (key.name === "escape") {
+        if (this.tab) this.focus = "editor";
+        return;
+      }
+      const next = editField(scm.message, key);
+      if (next) scm.message = next;
+      return;
+    }
+    const row = rows[scm.cursor];
+    switch (key.name) {
+      case "up":
+        if (scm.cursor === 0) scm.typing = true;
+        else scm.cursor--;
+        return;
+      case "down":
+        scm.cursor = Math.min(rows.length - 1, scm.cursor + 1);
+        return;
+      case "enter":
+        if (row) void this.openScmRow(row);
+        return;
+      case "text":
+        if (row && (key.text === " " || key.text === "+" || key.text === "-"))
+          void this.toggleStage(row);
+        return;
+      case "escape":
+        if (this.tab) this.focus = "editor";
+        return;
+    }
+  }
+
+  /** Opens a changed file's changes, or the file itself when it is new. */
+  async openScmRow(entry: ScmEntry) {
+    if (entry.state === "deleted")
+      return this.say(`${basename(entry.path)} is deleted`);
+    this.open(entry.path);
+    if (entry.state !== "untracked" && entry.state !== "added")
+      await this.openChanges();
   }
 
   /** Lists the ESLint problems of every open file in Quick Open, errors first, as VS Code's Problems view. */
@@ -2216,10 +2408,115 @@ export class Workbench {
     this.changed();
   }
 
+  /**
+   * Changes the line endings the file is saved with; the file counts as changed, as in VS Code.
+   * @param eol `\n` or `\r\n`
+   */
+  setEol(eol: "\n" | "\r\n") {
+    this.withDocument((document) => {
+      if (document.eol === eol) return;
+      document.eol = eol;
+      document.replace(
+        { line: 0, column: 0 },
+        { line: 0, column: 0 },
+        "",
+        "edit",
+      );
+    });
+  }
+
   /** Opens the most recently closed tab again. */
   reopenClosed() {
     const path = this.closed.pop();
     if (path) this.open(path);
+  }
+
+  /** The suggestion list at the cursor, as VS Code's IntelliSense with word-based suggestions and snippets. */
+  suggest: {
+    items: { label: string; kind: "word" | "snippet"; detail: string }[];
+    cursor: number;
+    start: Position;
+  } | null = null;
+
+  /**
+   * Fills the suggestion list for the word before the cursor: words of the open files and snippets that match it.
+   * @param open open the list when it is closed (a word character was typed); otherwise only refresh an open one
+   */
+  updateSuggestions(open: boolean) {
+    const tab = this.tab;
+    const document = tab?.document;
+    if (!tab || !document || document.extras.length || (!open && !this.suggest))
+      return;
+    const { line, column } = document.cursor;
+    const prefix =
+      /[\p{L}\p{N}_$]+$/u.exec(document.lines[line].slice(0, column))?.[0] ??
+      "";
+    if (!prefix || /^\d/.test(prefix)) {
+      this.suggest = null;
+      return;
+    }
+    const words = new Map<string, number>();
+    for (const open of new Set(
+      this.allTabs()
+        .map((other) => other.document)
+        .filter(Boolean),
+    ))
+      for (const text of open!.lines)
+        for (const match of text.matchAll(/[\p{L}_$][\p{L}\p{N}_$]{2,}/gu))
+          words.set(match[0], (words.get(match[0]) ?? 0) + 1);
+    if (document.lines[line].slice(column - prefix.length).startsWith(prefix)) {
+      const own = /^[\p{L}\p{N}_$]+/u.exec(
+        document.lines[line].slice(column - prefix.length),
+      )?.[0];
+      if (own && words.get(own) === 1) words.delete(own);
+    }
+    loadSnippets();
+    const items = [
+      ...[...words.keys()]
+        .filter((word) => word !== prefix)
+        .flatMap((word) => {
+          const match = fuzzyMatch(word, prefix);
+          return match && word.toLowerCase().startsWith(prefix[0].toLowerCase())
+            ? [
+                {
+                  label: word,
+                  kind: "word" as const,
+                  detail: "",
+                  score: match.score,
+                },
+              ]
+            : [];
+        }),
+      ...snippetsFor(tab.language).flatMap((snippet) =>
+        snippet.prefix.toLowerCase().startsWith(prefix.toLowerCase())
+          ? [
+              {
+                label: snippet.prefix,
+                kind: "snippet" as const,
+                detail: snippet.description,
+                score: 100,
+              },
+            ]
+          : [],
+      ),
+    ]
+      .sort((a, b) => b.score - a.score || a.label.length - b.label.length)
+      .slice(0, SUGGESTIONS);
+    this.suggest = items.length
+      ? { items, cursor: 0, start: { line, column: column - prefix.length } }
+      : null;
+  }
+
+  /** Inserts a suggestion in place of the word before the cursor; a snippet expands. */
+  acceptSuggestion(index: number) {
+    const suggest = this.suggest;
+    const document = this.tab?.document;
+    this.suggest = null;
+    const item = suggest?.items[index];
+    if (!item || !document || !suggest) return;
+    document.replace(suggest.start, document.cursor, item.label, "edit");
+    if (item.kind === "snippet") this.expandSnippet();
+    this.afterEdit();
   }
 
   /** Moves the cursor to the next or previous ESLint problem, wrapping around, and shows its message. */
@@ -2562,6 +2859,24 @@ export class Workbench {
   private editorKey(key: KeyEvent) {
     const document = this.tab?.document;
     if (!document) return;
+    if (this.suggest) {
+      const suggest = this.suggest;
+      if (key.name === "up" || key.name === "down") {
+        suggest.cursor =
+          (suggest.cursor +
+            (key.name === "up" ? -1 : 1) +
+            suggest.items.length) %
+          suggest.items.length;
+        return;
+      }
+      if (key.name === "enter" || key.name === "tab")
+        return this.acceptSuggestion(suggest.cursor);
+      if (key.name === "escape") {
+        this.suggest = null;
+        return;
+      }
+      if (key.name !== "text" && key.name !== "backspace") this.suggest = null;
+    }
     const select = key.shift;
     const word = key.ctrl || key.alt;
     const page = Math.max(1, this.view.rows - 1);
@@ -2633,6 +2948,7 @@ export class Workbench {
         break;
       case "backspace":
         document.backspace(word);
+        this.updateSuggestions(false);
         break;
       case "delete":
         document.deleteForward(word);
@@ -2647,10 +2963,15 @@ export class Workbench {
           this.find = null;
           break;
         }
+        if (this.zen && !document.hasSelection && !document.extras.length) {
+          this.zen = false;
+          break;
+        }
         document.setCursor(document.cursor);
         break;
       case "text":
         document.type(key.text!);
+        this.updateSuggestions(/^[\p{L}\p{N}_$]$/u.test(key.text!));
         break;
       case "paste":
         document.paste(key.text!);
@@ -3231,7 +3552,9 @@ export class Workbench {
         view.editing = null;
         view.error = null;
       } else if (key.name === "enter") this.commitSetting();
-      else {
+      else if (view.editing.key.startsWith("keys.")) {
+        view.editing.field = field(optionChord(key) ?? bindingOf(key));
+      } else {
         const next = editField(view.editing.field, key);
         if (next) view.editing.field = next;
       }
@@ -3844,6 +4167,207 @@ export class Workbench {
         run: () => this.selectAllOccurrences(),
       },
       {
+        action: "splitEditorDown",
+        label: "View: Split Editor Down",
+        run: () => {
+          this.layout = "vertical";
+          this.splitEditor();
+        },
+      },
+      {
+        action: "toggleLayout",
+        label: "View: Toggle Vertical/Horizontal Editor Layout",
+        run: () =>
+          void (this.layout =
+            this.layout === "vertical" ? "horizontal" : "vertical"),
+      },
+      {
+        action: "zenMode",
+        label: "View: Toggle Zen Mode",
+        run: () => void (this.zen = !this.zen),
+      },
+      {
+        action: "toggleMinimap",
+        label: "View: Toggle Minimap",
+        run: () =>
+          this.setSetting("settings.minimap", !this.config.settings.minimap),
+      },
+      {
+        action: "toggleBreadcrumbs",
+        label: "View: Toggle Breadcrumbs",
+        run: () =>
+          this.setSetting(
+            "settings.breadcrumbs",
+            !this.config.settings.breadcrumbs,
+          ),
+      },
+      {
+        action: "saveAll",
+        label: "File: Save All",
+        run: () => {
+          for (const [group, entry] of this.groups.entries()) {
+            this.group = group;
+            entry.tabs.forEach((tab, index) => {
+              if (tab.document?.dirty && tab.path) this.save(index);
+            });
+          }
+        },
+      },
+      {
+        action: "saveAs",
+        label: "File: Save As...",
+        run: () => {
+          const tab = this.tab;
+          if (!tab?.document) return;
+          this.ask({
+            title: "Save As",
+            message: `Path, relative to ${basename(this.root)}`,
+            input: field(
+              tab.path ? relativeTo(this.root, tab.path) : tab.title,
+              true,
+            ),
+            buttons: [
+              {
+                label: "Save",
+                primary: true,
+                run: (value) => {
+                  if (!value.trim()) return "A file name must be provided.";
+                  const path = isAbsolute(value)
+                    ? value
+                    : resolve(this.root, value.trim());
+                  if (tab.path && path !== tab.path) removeBackup(tab.path);
+                  tab.path = path;
+                  tab.title = basename(path);
+                  tab.language = languageOf(path, tab.document!.lines[0]);
+                  tab.highlight?.dispose();
+                  tab.highlight = new DocumentHighlight(
+                    tab.document!,
+                    tab.language,
+                    this.highlighter,
+                    this.config.limits.highlightChunkLines,
+                    this.config.limits.highlightMaxLines,
+                    () => this.changed(),
+                  );
+                  this.save(this.active);
+                },
+              },
+              { label: "Cancel", run: () => undefined },
+            ],
+          });
+        },
+      },
+      {
+        action: "revertFile",
+        label: "File: Revert File",
+        run: () => {
+          const tab = this.tab;
+          if (!tab?.path || !tab.document) return;
+          const contents = readText(
+            tab.path,
+            this.config.limits.maxFileMegabytes,
+          );
+          if (contents.kind !== "text") return;
+          tab.document.setText(contents.text);
+          tab.document.markSaved();
+          removeBackup(tab.path);
+          this.afterEdit();
+        },
+      },
+      {
+        action: "compareWithSaved",
+        label: "File: Compare Active File with Saved",
+        run: () => void this.openChanges(true),
+      },
+      {
+        action: "copyPath",
+        label: "File: Copy Path of Active File",
+        run: () => this.tab?.path && void this.copy(this.tab.path),
+      },
+      {
+        action: "copyRelativePath",
+        label: "File: Copy Relative Path of Active File",
+        run: () =>
+          this.tab?.path &&
+          void this.copy(relativeTo(this.root, this.tab.path)),
+      },
+      {
+        action: "addCursorAbove",
+        label: "Add Cursor Above",
+        run: () =>
+          this.withDocument((document) => document.addCursorVertical(-1)),
+      },
+      {
+        action: "addCursorBelow",
+        label: "Add Cursor Below",
+        run: () =>
+          this.withDocument((document) => document.addCursorVertical(1)),
+      },
+      {
+        action: "expandSelection",
+        label: "Expand Selection",
+        run: () => this.withDocument((document) => document.expandSelection()),
+      },
+      {
+        action: "shrinkSelection",
+        label: "Shrink Selection",
+        run: () => this.withDocument((document) => document.shrinkSelection()),
+      },
+      {
+        action: "eolLf",
+        label: "Change End of Line Sequence: LF",
+        run: () => this.setEol("\n"),
+      },
+      {
+        action: "eolCrlf",
+        label: "Change End of Line Sequence: CRLF",
+        run: () => this.setEol("\r\n"),
+      },
+      {
+        action: "indentToSpaces",
+        label: "Convert Indentation to Spaces",
+        run: () =>
+          this.withDocument((document) => {
+            const size = document.indentation.size;
+            document.setText(
+              document.lines
+                .map((line) =>
+                  line.replace(/^[ \t]+/, (lead) =>
+                    lead.replace(/\t/g, " ".repeat(size)),
+                  ),
+                )
+                .join("\n"),
+            );
+            document.indentation = { useTabs: false, size };
+          }),
+      },
+      {
+        action: "indentToTabs",
+        label: "Convert Indentation to Tabs",
+        run: () =>
+          this.withDocument((document) => {
+            const size = document.indentation.size;
+            document.setText(
+              document.lines
+                .map((line) =>
+                  line.replace(/^[ \t]+/, (lead) => {
+                    const cells = lead.replace(/\t/g, " ".repeat(size)).length;
+                    return (
+                      "\t".repeat(Math.floor(cells / size)) +
+                      " ".repeat(cells % size)
+                    );
+                  }),
+                )
+                .join("\n"),
+            );
+            document.indentation = { useTabs: true, size };
+          }),
+      },
+      {
+        action: "scm",
+        label: "View: Show Source Control",
+        run: () => void this.openScm(),
+      },
+      {
         action: "outline",
         label: "View: Show Outline",
         run: () => {
@@ -4079,6 +4603,11 @@ export class Workbench {
    */
   key(key: KeyEvent) {
     if (this.dialog) this.dialogKey(key);
+    else if (
+      this.focus === "settings" &&
+      this.settingsView.editing?.key.startsWith("keys.")
+    )
+      this.settingsKey(key);
     else if (this.menu) this.menuKey(key);
     else if (this.palette) this.paletteKey(key);
     else {
@@ -4096,6 +4625,7 @@ export class Workbench {
       const typing =
         (this.find?.field && this.focus === "editor") ||
         (this.focus === "search" && this.search.field) ||
+        (this.focus === "scm" && this.scm?.typing) ||
         (this.focus === "settings" &&
           (this.settingsView.searching || this.settingsView.editing));
       const fieldKeys = ["copy", "cut", "paste", "selectAll", "undo", "redo"];
@@ -4103,6 +4633,7 @@ export class Workbench {
       else if (this.find?.field && this.focus === "editor") this.findKey(key);
       else if (this.focus === "explorer") this.explorerKey(key);
       else if (this.focus === "search") this.searchKey(key);
+      else if (this.focus === "scm") this.scmKey(key);
       else if (this.focus === "settings") this.settingsKey(key);
       else if (this.tab?.kind === "preview" || this.tab?.kind === "diff") {
         const step = {

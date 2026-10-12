@@ -12,6 +12,7 @@
     "bracketPairColorization": true,
     "guides": true,
     "minimap": true,
+    "breadcrumbs": true,
     "wordWrap": false,
     "renderWhitespace": "all",
     "showFoldingControls": "always",
@@ -116,7 +117,14 @@
     "duplicateLineUp": "alt+shift+up",
     "goBack": "ctrl+alt+left",
     "goForward": "ctrl+alt+right",
-    "blockComment": "alt+shift+a"
+    "blockComment": "alt+shift+a",
+    "saveAll": "alt+s",
+    "addCursorAbove": "ctrl+alt+up",
+    "addCursorBelow": "ctrl+alt+down",
+    "expandSelection": "ctrl+shift+right",
+    "shrinkSelection": "ctrl+shift+left",
+    "scm": "alt+g",
+    "outline": "alt+o"
   },
   "themes": {
     "golden-brown": {
