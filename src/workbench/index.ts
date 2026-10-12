@@ -23,8 +23,8 @@ import {
   type FSWatcher,
 } from "node:fs";
 import {
+  baseDefaults,
   loadConfig,
-  loadDefaults,
   saveConfig,
   saveState,
   ConfigError,
@@ -4712,7 +4712,5 @@ export class Workbench {
   }
 }
 
-let defaultsCache: Config | null = null;
-
 /** @returns the shipped defaults, read once */
-const loadDefaultsCached = (): Config => (defaultsCache ??= loadDefaults());
+const loadDefaultsCached = (): Config => baseDefaults();

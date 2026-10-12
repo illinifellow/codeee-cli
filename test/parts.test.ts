@@ -220,3 +220,26 @@ describe("emmet", () => {
     expect(expandEmmet("user.name", options)).toBeNull();
   });
 });
+
+describe("following VS Code", () => {
+  it("maps VS Code's editor and file settings onto codeee's", async () => {
+    const { fromVsCode } = await import("@/vscode");
+    const mapped = fromVsCode({
+      "editor.tabSize": 4,
+      "editor.renderWhitespace": "boundary",
+      "editor.lineNumbers": "relative",
+      "files.autoSave": "onWindowChange",
+      "editor.wordWrap": "on",
+      "files.exclude": { "**/.cache": true, "**/*.log": true },
+    });
+    expect(mapped.settings).toMatchObject({
+      tabSize: 4,
+      renderWhitespace: "all",
+      lineNumbers: true,
+      relativeLineNumbers: true,
+      autoSave: "onFocusChange",
+      wordWrap: true,
+      exclude: [".cache"],
+    });
+  });
+});
