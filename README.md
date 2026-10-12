@@ -36,6 +36,10 @@ codeee is the sibling of [gittt](https://github.com/illinifellow/gittt-cli): git
 - **HTML and JSX:** Emmet abbreviations on Tab (`ul>li.item$*3`), closing tags typed for you.
 - **Word wrap** (`⌥Z`, on for plain text), whitespace drawn, fold controls beside every block, Fold All and Unfold All (`⌥-` `⌥=`), snippet tab stops.
 - **Text commands:** upper, lower and title case, sort lines, join lines, delete duplicate lines, trim trailing whitespace; Open Folder and Open Recent switch folders in place.
+- **Navigation:** Go Back and Go Forward (`^⌥←` `^⌥→`), `^`-click goes to a definition, a click on the breadcrumbs lists the file's symbols, the Outline view (View: Show Outline), the Problems list (View: Show Problems).
+- **Git:** Open Changes shows the file's changes against the last commit inline.
+- **Menus as in VS Code:** tabs (Close Others, Close to the Right, Close Saved, Close All, Split Right, Reveal in Finder), the editor (Go to Definition, Rename Symbol, Change All Occurrences, Format Document), the explorer (Find in Folder, Copy, Paste, Reveal in Finder) and search results (Replace, Dismiss, Copy All); a middle click closes a tab.
+- **More editing:** Format Selection, Toggle Block Comment (`⌥⇧A`), Find in Selection (`⌥L`), recently used commands first in `>`, `@modified` on the settings page.
 - **Small things VS Code users expect:** Reopen Closed Editor, Change Language Mode and Change Indentation commands, type a name in the explorer to jump to it, whitespace shown inside selections.
 - **Option as Alt** even when the terminal sends Option as text, so every `⌥` shortcut works in a stock iTerm2 or Terminal.
 - **Settings page** like VS Code's: search, table of contents, every option with its description and control, modified marks, reset, and the JSON file one click away.
