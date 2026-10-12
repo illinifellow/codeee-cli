@@ -1357,3 +1357,90 @@ const bracketBalance = (text: string) => {
 /** @returns the display width of a line in cells */
 export const lineWidth = (text: string, tabSize: number) =>
   text.includes("\t") ? cellOf(text, text.length, tabSize) : widthOf(text);
+
+/**
+ * Line and text transforms of VS Code's command palette, applied to the selected lines (or the cursor's line).
+ * @param document the document
+ * @param transform which transform
+ */
+export const transformLines = (
+  document: Document,
+  transform:
+    | "upper"
+    | "lower"
+    | "title"
+    | "sortAscending"
+    | "sortDescending"
+    | "join"
+    | "unique"
+    | "trim",
+) => {
+  const [start, end] = document.range();
+  const first = start.line;
+  const last =
+    end.line > start.line && end.column === 0 ? end.line - 1 : end.line;
+  const lines = document.lines.slice(first, last + 1);
+  if (
+    ["upper", "lower", "title"].includes(transform) &&
+    document.hasSelection
+  ) {
+    const text = document.selectedText();
+    const changed =
+      transform === "upper"
+        ? text.toUpperCase()
+        : transform === "lower"
+          ? text.toLowerCase()
+          : text.replace(/\b\p{L}/gu, (letter) => letter.toUpperCase());
+    const selectionEnd = document.replace(start, end, changed, "edit");
+    return document.select(start, selectionEnd);
+  }
+  const collator = new Intl.Collator(undefined, { numeric: true });
+  const result =
+    transform === "upper"
+      ? lines.map((line) => line.toUpperCase())
+      : transform === "lower"
+        ? lines.map((line) => line.toLowerCase())
+        : transform === "title"
+          ? lines.map((line) =>
+              line.replace(/\b\p{L}/gu, (letter) => letter.toUpperCase()),
+            )
+          : transform === "sortAscending"
+            ? [...lines].sort(collator.compare)
+            : transform === "sortDescending"
+              ? [...lines].sort((a, b) => collator.compare(b, a))
+              : transform === "join"
+                ? [
+                    lines
+                      .map((line, index) =>
+                        index ? line.trim() : line.trimEnd(),
+                      )
+                      .join(" "),
+                  ].concat(
+                    first === last && last + 1 < document.lines.length
+                      ? []
+                      : [],
+                  )
+                : transform === "unique"
+                  ? lines.filter((line, index) => lines.indexOf(line) === index)
+                  : lines.map((line) => line.replace(/[ \t]+$/, ""));
+  if (
+    transform === "join" &&
+    first === last &&
+    last + 1 < document.lines.length
+  ) {
+    const next = document.lines[last + 1].trim();
+    const joinedEnd = document.replace(
+      { line: first, column: document.lines[first].trimEnd().length },
+      { line: last + 1, column: document.lines[last + 1].length },
+      next ? ` ${next}` : "",
+      "edit",
+    );
+    return document.setCursor(joinedEnd);
+  }
+  document.replace(
+    { line: first, column: 0 },
+    { line: last, column: document.lines[last].length },
+    result.join("\n"),
+    "edit",
+  );
+};

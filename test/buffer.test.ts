@@ -200,3 +200,22 @@ describe("multiple cursors", () => {
     expect(document.text()).toBe("let bb = bb + bb;");
   });
 });
+
+describe("line transforms", () => {
+  it("sorts, deduplicates, joins and changes case of the selected lines", async () => {
+    const { transformLines } = await import("@/buffer");
+    const document = open("b\na\nb");
+    document.selectAll();
+    transformLines(document, "unique");
+    expect(document.lines).toEqual(["b", "a"]);
+    document.selectAll();
+    transformLines(document, "sortAscending");
+    expect(document.lines).toEqual(["a", "b"]);
+    document.setCursor({ line: 0, column: 0 });
+    transformLines(document, "join");
+    expect(document.lines).toEqual(["a b"]);
+    document.selectAll();
+    transformLines(document, "upper");
+    expect(document.text()).toBe("A B");
+  });
+});

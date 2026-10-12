@@ -265,7 +265,15 @@ void instance.waitUntilExit().finally(() => {
     process.execve(
       process.execPath,
       [process.execPath, ...process.execArgv, ...process.argv.slice(1, 2)],
-      { ...process.env, ...(folder ? { CODEEE_FOLDER: folder } : {}) },
+      {
+        ...process.env,
+        ...(process.env.CODEEE_NEXT_FOLDER || folder
+          ? {
+              CODEEE_FOLDER: process.env.CODEEE_NEXT_FOLDER || folder,
+              CODEEE_NEXT_FOLDER: "",
+            }
+          : {}),
+      },
     );
   } catch (error) {
     process.stdout.write(

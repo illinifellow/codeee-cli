@@ -13,7 +13,7 @@ import {
   relative,
   resolve,
 } from "node:path";
-import { renameSync, type FSWatcher } from "node:fs";
+import { existsSync, renameSync, statSync, type FSWatcher } from "node:fs";
 import {
   loadConfig,
   loadDefaults,
@@ -28,6 +28,7 @@ import {
   columnAt,
   Document,
   indentOf,
+  transformLines,
   type FindOptions,
   type Match,
   type Position,
@@ -36,6 +37,7 @@ import { copyToClipboard, readClipboard } from "@/clipboard";
 import { editField, field, type Field } from "@/field";
 import {
   createFile,
+  expandPath,
   createFolder,
   deleteEntry,
   FileTree,
@@ -1682,6 +1684,27 @@ export class Workbench {
     this.changed();
   }
 
+  /**
+   * Opens another folder in place, as VS Code's Open Folder: codeee restarts on it once no file is unsaved.
+   * @param value the folder, `~` allowed
+   * @returns a sentence saying why it cannot, for the dialog
+   */
+  switchFolder(value: string) {
+    const folder = expandPath(value.trim());
+    if (!existsSync(folder) || !statSync(folder).isDirectory())
+      return `${folder} is not a folder.`;
+    if (this.tabs.some((tab) => tab.document?.dirty))
+      return "Save or close the unsaved files first.";
+    const state = this.config.state;
+    state.recent = [
+      folder,
+      ...state.recent.filter((path) => path !== folder),
+    ].slice(0, this.config.limits.recentFolders);
+    this.saveSession();
+    process.env.CODEEE_NEXT_FOLDER = folder;
+    this.restart();
+  }
+
   /** Opens the most recently closed tab again. */
   reopenClosed() {
     const path = this.closed.pop();
@@ -3036,6 +3059,69 @@ export class Workbench {
           this.withDocument((document) => {
             if (!document.addNextOccurrence()) this.say("No more occurrences");
           }),
+      },
+      ...(
+        [
+          ["upper", "Transform to Uppercase"],
+          ["lower", "Transform to Lowercase"],
+          ["title", "Transform to Title Case"],
+          ["sortAscending", "Sort Lines Ascending"],
+          ["sortDescending", "Sort Lines Descending"],
+          ["join", "Join Lines"],
+          ["unique", "Delete Duplicate Lines"],
+          ["trim", "Trim Trailing Whitespace"],
+        ] as const
+      ).map(([transform, label]) => ({
+        action: `transform.${transform}`,
+        label,
+        run: () =>
+          this.withDocument((document) => transformLines(document, transform)),
+      })),
+      {
+        action: "openFolder",
+        label: "File: Open Folder...",
+        run: () =>
+          this.ask({
+            title: "Open Folder",
+            message: "The folder codeee shows instead of this one",
+            input: field(this.root),
+            buttons: [
+              {
+                label: "Open",
+                primary: true,
+                run: (value) => this.switchFolder(value),
+              },
+              { label: "Cancel", run: () => undefined },
+            ],
+          }),
+      },
+      {
+        action: "openRecent",
+        label: "File: Open Recent...",
+        run: () => {
+          this.palette = {
+            field: field(),
+            cursor: 0,
+            placeholder: "Select to open",
+            items: [],
+          };
+          this.paletteSource = (query) =>
+            this.config.state.recent
+              .filter((folder) => folder !== this.root)
+              .flatMap((folder) => {
+                const match = fuzzyMatch(folder, query);
+                return match
+                  ? [
+                      {
+                        label: basename(folder),
+                        detail: folder,
+                        run: () => void this.switchFolder(folder),
+                      },
+                    ]
+                  : [];
+              });
+          this.filterPalette();
+        },
       },
       {
         action: "goToSymbol",
