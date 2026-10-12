@@ -239,6 +239,9 @@ let nextTabId = 1;
 /** How often git's status is read again, for commits and staging made elsewhere (the watcher skips `.git`). */
 const GIT_POLL_MS = 3000;
 
+/** Letters typed in the explorer within this many milliseconds form one name to jump to. */
+const TYPE_TO_FIND_MS = 800;
+
 /** How long the cursor rests on a line before its blame is read, as GitLens waits. */
 const BLAME_DELAY_MS = 250;
 
@@ -294,6 +297,8 @@ export class Workbench {
     error: null,
   };
   private searchAbort: AbortController | null = null;
+  /** Letters typed in the explorer to jump to a name, as VS Code's keyboard navigation. */
+  private typed = { text: "", time: 0 };
   /** Files of closed tabs, newest last, for Reopen Closed Editor. */
   private closed: string[] = [];
   private searchTimer: ReturnType<typeof setTimeout> | null = null;
@@ -1107,9 +1112,29 @@ export class Workbench {
         return row?.folder ? move(this.explorerCursor + 1) : undefined;
       case "enter":
         return this.openRow(this.explorerCursor);
-      case "text":
-        if (key.text === " ") return this.openRow(this.explorerCursor, true);
-        break;
+      case "text": {
+        if (key.text === " " && !this.typed.text)
+          return this.openRow(this.explorerCursor, true);
+        const now = Date.now();
+        this.typed = {
+          text:
+            (now - this.typed.time < TYPE_TO_FIND_MS ? this.typed.text : "") +
+            key.text!.toLowerCase(),
+          time: now,
+        };
+        const order = [...rows.keys()].map(
+          (offset) =>
+            (this.explorerCursor +
+              (this.typed.text.length > 1 ? 0 : 1) +
+              offset) %
+            rows.length,
+        );
+        const found = order.find((index) =>
+          rows[index].name.toLowerCase().startsWith(this.typed.text),
+        );
+        if (found !== undefined) move(found);
+        return;
+      }
       case "f2":
         return row && this.renameInExplorer(row.path);
       case "delete":

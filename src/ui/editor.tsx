@@ -275,20 +275,26 @@ const codeRow = (
         placed.source === " " &&
         options.guides.includes(placed.start) &&
         !atCursor;
+      const whitespace =
+        !atCursor &&
+        selected(column) &&
+        (placed.source === " " || placed.source === "\t");
       const visible = guide
         ? options.guide.glyph
-        : placed.start < left || end > left + width
-          ? " ".repeat(
-              Math.min(end, left + width) - Math.max(placed.start, left),
-            )
-          : placed.drawn;
+        : whitespace
+          ? (placed.source === "\t" ? "→" : "·").padEnd(placed.width, " ")
+          : placed.start < left || end > left + width
+            ? " ".repeat(
+                Math.min(end, left + width) - Math.max(placed.start, left),
+              )
+            : placed.drawn;
       push({
         text: visible,
         color: atCursor
           ? colors.cursorText
           : swatch && background === swatch.color
             ? contrastOn(swatch.color)
-            : guide
+            : guide || whitespace
               ? options.guide.color
               : (options.bracketColors.get(column) ??
                 segment?.color ??
