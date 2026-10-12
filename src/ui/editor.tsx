@@ -9,6 +9,7 @@ import { Box, Text } from "ink";
 import { memo, type ReactNode } from "react";
 import {
   cellOf,
+  columnAt,
   eachBracket,
   indentOf,
   type Document,
@@ -836,6 +837,56 @@ export const CodeView = memo(
             document.setCursor(position);
             void workbench.goToDefinition();
             return;
+          }
+          if (event.alt && event.shift) {
+            const anchorCell = cellOf(
+              document.lines[position.line],
+              position.column,
+              document.indentation.size,
+            );
+            const boxTo = (move: LocalMouseEvent) => {
+              const target = pointAt(move);
+              if (!target) return;
+              const targetCell = cellOf(
+                document.lines[target.line],
+                target.column,
+                document.indentation.size,
+              );
+              const step = target.line >= position.line ? 1 : -1;
+              const selections = [];
+              for (
+                let line = position.line;
+                line !== target.line + step;
+                line += step
+              ) {
+                const text = document.lines[line];
+                selections.push({
+                  anchor: {
+                    line,
+                    column: columnAt(
+                      text,
+                      anchorCell,
+                      document.indentation.size,
+                    ),
+                  },
+                  cursor: {
+                    line,
+                    column: columnAt(
+                      text,
+                      targetCell,
+                      document.indentation.size,
+                    ),
+                  },
+                });
+              }
+              const last = selections.pop()!;
+              document.extras = selections;
+              document.anchor = last.anchor;
+              document.cursor = last.cursor;
+              workbench.changed();
+            };
+            boxTo(event);
+            return boxTo;
           }
           if (event.alt) {
             document.extras.push({

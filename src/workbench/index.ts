@@ -1464,6 +1464,17 @@ export class Workbench {
           label: "Copy Relative Path",
           run: () => void this.copy(relativeTo(this.root, row.path)),
         },
+        ...(row.folder
+          ? []
+          : [
+              {
+                label: "Open to the Side",
+                run: () => {
+                  this.open(row.path);
+                  this.splitEditor();
+                },
+              },
+            ]),
         { label: "Reveal in Finder", run: () => revealInFinder(row.path) },
         ...(row.folder
           ? [
@@ -3937,6 +3948,16 @@ export class Workbench {
                   if (tab.path && path !== tab.path) removeBackup(tab.path);
                   tab.path = path;
                   tab.title = basename(path);
+                  tab.language = languageOf(path, tab.document!.lines[0]);
+                  tab.highlight?.dispose();
+                  tab.highlight = new DocumentHighlight(
+                    tab.document!,
+                    tab.language,
+                    this.highlighter,
+                    this.config.limits.highlightChunkLines,
+                    this.config.limits.highlightMaxLines,
+                    () => this.changed(),
+                  );
                   this.save(this.active);
                 },
               },
