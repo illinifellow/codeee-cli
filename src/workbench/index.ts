@@ -3980,6 +3980,28 @@ export class Workbench {
           void this.copy(relativeTo(this.root, this.tab.path)),
       },
       {
+        action: "addCursorAbove",
+        label: "Add Cursor Above",
+        run: () =>
+          this.withDocument((document) => document.addCursorVertical(-1)),
+      },
+      {
+        action: "addCursorBelow",
+        label: "Add Cursor Below",
+        run: () =>
+          this.withDocument((document) => document.addCursorVertical(1)),
+      },
+      {
+        action: "expandSelection",
+        label: "Expand Selection",
+        run: () => this.withDocument((document) => document.expandSelection()),
+      },
+      {
+        action: "shrinkSelection",
+        label: "Shrink Selection",
+        run: () => this.withDocument((document) => document.shrinkSelection()),
+      },
+      {
         action: "outline",
         label: "View: Show Outline",
         run: () => {

@@ -150,6 +150,30 @@ const KEYS: [string, string, string, string][] = [
   ],
   ["saveAll", "File", "Save All", "Save every file with unsaved changes."],
   [
+    "addCursorAbove",
+    "Selection",
+    "Add Cursor Above",
+    "Add a cursor on the line above.",
+  ],
+  [
+    "addCursorBelow",
+    "Selection",
+    "Add Cursor Below",
+    "Add a cursor on the line below.",
+  ],
+  [
+    "expandSelection",
+    "Selection",
+    "Expand Selection",
+    "Grow the selection to the word, the brackets, the line, the block, the file.",
+  ],
+  [
+    "shrinkSelection",
+    "Selection",
+    "Shrink Selection",
+    "Undo the last Expand Selection step.",
+  ],
+  [
     "reopenClosed",
     "View",
     "Reopen Closed Editor",

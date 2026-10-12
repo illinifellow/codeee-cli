@@ -118,7 +118,11 @@
     "goBack": "ctrl+alt+left",
     "goForward": "ctrl+alt+right",
     "blockComment": "alt+shift+a",
-    "saveAll": "alt+s"
+    "saveAll": "alt+s",
+    "addCursorAbove": "ctrl+alt+up",
+    "addCursorBelow": "ctrl+alt+down",
+    "expandSelection": "ctrl+shift+right",
+    "shrinkSelection": "ctrl+shift+left"
   },
   "themes": {
     "golden-brown": {

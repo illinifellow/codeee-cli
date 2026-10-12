@@ -1228,6 +1228,124 @@ export class Document {
     }));
   }
 
+  /**
+   * Adds a cursor on the line above or below the topmost or bottommost one, at the same cell, as Add Cursor Above/Below.
+   * @param direction -1 above, 1 below
+   */
+  addCursorVertical(direction: -1 | 1) {
+    const all = [this.cursor, ...this.extras.map((extra) => extra.cursor)];
+    const edge = all.reduce((best, cursor) =>
+      (direction < 0 ? cursor.line < best.line : cursor.line > best.line)
+        ? cursor
+        : best,
+    );
+    const line = edge.line + direction;
+    if (line < 0 || line >= this.lines.length) return;
+    const cell = cellOf(
+      this.lines[edge.line],
+      edge.column,
+      this.indentation.size,
+    );
+    const cursor = {
+      line,
+      column: columnAt(this.lines[line], cell, this.indentation.size),
+    };
+    this.extras.push({
+      anchor: { ...this.cursor },
+      cursor: { ...this.cursor },
+    });
+    this.cursor = cursor;
+    this.anchor = null;
+  }
+
+  /** Selections Expand Selection grew from, for Shrink Selection. */
+  private expansions: [Position, Position][] = [];
+
+  /**
+   * Grows the selection one step, as VS Code's Expand Selection: the word, the inside of the brackets or quotes around
+   * it, the brackets themselves, the line, the indented block, the whole file.
+   */
+  expandSelection() {
+    const [start, end] = this.range();
+    const candidates: [Position, Position][] = [];
+    const word = this.wordAt(start);
+    if (word) candidates.push(word);
+    const text = this.lines[start.line];
+    for (const [open, close] of [
+      ["(", ")"],
+      ["[", "]"],
+      ["{", "}"],
+      ['"', '"'],
+      ["'", "'"],
+      ["`", "`"],
+    ]) {
+      if (start.line !== end.line) break;
+      const left = text.lastIndexOf(open, start.column - 1);
+      const right = text.indexOf(close, end.column);
+      if (left >= 0 && right >= 0)
+        candidates.push(
+          [
+            { line: start.line, column: left + 1 },
+            { line: start.line, column: right },
+          ],
+          [
+            { line: start.line, column: left },
+            { line: start.line, column: right + 1 },
+          ],
+        );
+    }
+    candidates.push([
+      { line: start.line, column: indentOf(text).length },
+      { line: end.line, column: this.lines[end.line].length },
+    ]);
+    for (let line = start.line; line >= 0; line--) {
+      const indent = indentOf(this.lines[line]).length;
+      if (
+        line < start.line &&
+        this.lines[line].trim() &&
+        indent < indentOf(text).length
+      ) {
+        let last = end.line;
+        while (
+          last + 1 < this.lines.length &&
+          (!this.lines[last + 1].trim() ||
+            indentOf(this.lines[last + 1]).length > indent)
+        )
+          last++;
+        candidates.push([
+          { line, column: indent },
+          { line: last, column: this.lines[last].length },
+        ]);
+        break;
+      }
+    }
+    candidates.push([
+      { line: 0, column: 0 },
+      { line: this.lines.length - 1, column: this.lines.at(-1)!.length },
+    ]);
+    const contains = (outer: [Position, Position]) =>
+      !before(start, outer[0]) &&
+      !before(outer[1], end) &&
+      (before(outer[0], start) || before(end, outer[1]));
+    const smallest = candidates
+      .filter(contains)
+      .reduce<[Position, Position] | null>((best, range) => {
+        if (!best) return range;
+        const size = (r: [Position, Position]) =>
+          (r[1].line - r[0].line) * 100000 + (r[1].column - r[0].column);
+        return size(range) < size(best) ? range : best;
+      }, null);
+    if (!smallest) return;
+    this.expansions.push([start, end]);
+    this.select(smallest[0], smallest[1]);
+  }
+
+  /** Shrinks the selection back one step of Expand Selection. */
+  shrinkSelection() {
+    const previous = this.expansions.pop();
+    if (previous) this.select(previous[0], previous[1]);
+  }
+
   /** @returns every selection, the main one included, as ordered ranges */
   allRanges(): [Position, Position][] {
     const ranges: [Position, Position][] = [this.range()];
