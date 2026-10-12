@@ -79,7 +79,7 @@ codeee src/app.ts   # opens the file's folder with the file in a tab
 | `^C` `^X` `^V`      | copy, cut, paste (the whole line when nothing is selected)            |
 | `^A` `^L`           | select all, expand line selection                                     |
 | `^D`                | select the word, then add its next occurrence: type to edit every one |
-| `^/` `^K` `^D`      | toggle comment, delete line, copy line down                           |
+| `^/` `^K` `⌥⇧↓`     | toggle comment, delete line, copy line down                           |
 | `⌥↑` `⌥↓`           | move line                                                             |
 | `^\`                | jump to the matching bracket                                          |
 | `⌥⇧F`               | Format Document                                                       |
