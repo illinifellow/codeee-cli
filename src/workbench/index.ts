@@ -2503,6 +2503,8 @@ export class Workbench {
     if (path) this.open(path);
   }
 
+  /** The explorer row under the pointer, drawn on the hover ground. */
+  hoverPath: string | null = null;
   /** A tooltip near the pointer, as VS Code's hover: a problem's message, a tab's path. */
   hoverTip: { text: string; x: number; y: number; color?: string } | null =
     null;
@@ -2515,6 +2517,10 @@ export class Workbench {
   hover(tip: { text: string; x: number; y: number; color?: string } | null) {
     if (this.hoverTimer) clearTimeout(this.hoverTimer);
     if (!tip) {
+      if (this.hoverPath) {
+        this.hoverPath = null;
+        this.changed();
+      }
       if (this.hoverTip) {
         this.hoverTip = null;
         this.changed();

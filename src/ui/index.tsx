@@ -530,7 +530,9 @@ const Explorer = ({
           ? palette.selection
           : row.path === activePath
             ? palette.selectionInactive
-            : undefined;
+            : row.path === workbench.hoverPath
+              ? palette.lineHighlight
+              : undefined;
       const indent = " ".repeat(1 + row.depth * spacing.indent);
       const git = workbench.git;
       const state = git
@@ -581,6 +583,12 @@ const Explorer = ({
           onDoubleClick={() => {
             workbench.focus = "explorer";
             workbench.openRow(index, false, true);
+          }}
+          onHover={() => {
+            if (workbench.hoverPath === row.path) return;
+            workbench.hoverPath = row.path;
+            workbench.hover(null);
+            workbench.changed();
           }}
           onPress={() => (move) => {
             const target = rows[index + move.localY];
@@ -1118,6 +1126,11 @@ const OverlayBox = ({
               key={`${index}-${item.label}`}
               height={1}
               onClick={() => workbench.choosePalette(index)}
+              onHover={() => {
+                if (quick.cursor === index) return;
+                quick.cursor = index;
+                workbench.changed();
+              }}
             >
               <Text
                 backgroundColor={
@@ -1245,7 +1258,15 @@ const OverlayBox = ({
                 {glyphs.rule.repeat(boxWidth - 2)}
               </Text>
             ) : null}
-            <Clickable height={1} onClick={() => workbench.chooseMenu(index)}>
+            <Clickable
+              height={1}
+              onClick={() => workbench.chooseMenu(index)}
+              onHover={() => {
+                if (menu.cursor === index) return;
+                menu.cursor = index;
+                workbench.changed();
+              }}
+            >
               <Text
                 backgroundColor={
                   index === menu.cursor ? palette.selection : palette.background
