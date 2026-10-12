@@ -50,6 +50,7 @@ import {
   type Row,
 } from "@/files";
 import { DocumentHighlight, SyntaxHighlighter } from "@/highlight";
+import { expandEmmet } from "@/emmet";
 import { formatText } from "@/format";
 import { lintText, type Diagnostic } from "@/lint";
 import { expandSnippet, findSnippet, loadSnippets } from "@/snippets";
@@ -1551,7 +1552,7 @@ export class Workbench {
     if (!word) return false;
     loadSnippets();
     const snippet = findSnippet(tab.language, word);
-    if (!snippet) return false;
+    if (!snippet) return this.expandAbbreviation();
     const unit = document.indentation.useTabs
       ? "\t"
       : " ".repeat(document.indentation.size);
@@ -1570,6 +1571,47 @@ export class Workbench {
     document.select(at, {
       line: at.line,
       column: at.column + expanded.selected,
+    });
+    return true;
+  }
+
+  /**
+   * Expands an Emmet abbreviation before the cursor in HTML-like files and JSX, as VS Code does on Tab.
+   * @returns whether one was expanded
+   */
+  private expandAbbreviation() {
+    const tab = this.tab;
+    const document = tab?.document;
+    const markup = ["html", "vue", "svelte", "astro", "xml", "php"];
+    const jsx = ["jsx", "tsx"];
+    if (
+      !tab ||
+      !document ||
+      !tab.language ||
+      ![...markup, ...jsx].includes(tab.language)
+    )
+      return false;
+    const { line, column } = document.cursor;
+    const before = document.lines[line].slice(0, column);
+    const abbreviation = /[\w.#>+^*$\-[\]="' {}]+$/
+      .exec(before)?.[0]
+      ?.trimStart();
+    if (!abbreviation) return false;
+    const unit = document.indentation.useTabs
+      ? "\t"
+      : " ".repeat(document.indentation.size);
+    const expanded = expandEmmet(abbreviation, {
+      jsx: jsx.includes(tab.language),
+      indent: indentOf(document.lines[line]),
+      unit,
+    });
+    if (!expanded) return false;
+    const start = { line, column: column - abbreviation.length };
+    document.replace(start, document.cursor, expanded.text, "edit");
+    const head = expanded.text.slice(0, expanded.cursor).split("\n");
+    document.setCursor({
+      line: line + head.length - 1,
+      column: (head.length === 1 ? start.column : 0) + head.at(-1)!.length,
     });
     return true;
   }
