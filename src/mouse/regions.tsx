@@ -19,6 +19,8 @@ interface MouseHandlers {
   onRightClick?: (event: LocalMouseEvent) => void;
   /** A middle press, as on a tab to close it. */
   onMiddleClick?: (event: LocalMouseEvent) => void;
+  /** The pointer rests over the box, with no button held. */
+  onHover?: (event: LocalMouseEvent) => void;
   /** `step` is -1 for wheel up or left, 1 for down or right; `event.kind` tells the axis. */
   onWheel?: (step: number, event: LocalMouseEvent) => void;
   /**
@@ -38,6 +40,13 @@ interface Target {
 }
 
 const targets = new Set<Target>();
+
+/** Hears pointer moves that land on no hover target, so a tooltip can close. */
+let hoverListener: ((event: MouseEvent | null) => void) | null = null;
+
+/** @param listener called with every move outside hover targets (`null` when one took it) */
+export const onHoverOutside = (listener: (event: MouseEvent | null) => void) =>
+  void (hoverListener = listener);
 let dragging: ((event: LocalMouseEvent) => void) | null = null;
 
 const rectangleOf = (element: DOMElement) => {
@@ -77,6 +86,7 @@ export const Clickable = ({
   onDoubleClick,
   onRightClick,
   onMiddleClick,
+  onHover,
   onWheel,
   onPress,
   modal = false,
@@ -89,6 +99,7 @@ export const Clickable = ({
     onDoubleClick,
     onRightClick,
     onMiddleClick,
+    onHover,
     onWheel,
     onPress,
   };
@@ -205,6 +216,11 @@ export const dispatchMouse = (event: MouseEvent) => {
       event.kind === "wheelUp" || event.kind === "wheelLeft" ? -1 : 1,
       hit.event,
     );
+  }
+  if (event.kind === "move") {
+    const hit = pick(event, (handlers) => handlers.onHover);
+    hoverListener?.(hit ? null : event);
+    return hit?.handlers.onHover?.(hit.event);
   }
   if (event.kind !== "down") return;
   if (event.button === "right") {

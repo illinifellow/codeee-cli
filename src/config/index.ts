@@ -28,6 +28,7 @@ import {
   type ParseError,
 } from "jsonc-parser";
 import type { ThemeOverrides } from "@/theme";
+import { fromVsCode, readVsCodeSettings } from "@/vscode";
 
 /** Every action a key can trigger. */
 export type KeyBindings = Record<
@@ -134,6 +135,8 @@ export interface EditorSettings {
   guides: boolean;
   /** Shows the minimap at the editor's right edge. */
   minimap: boolean;
+  /** Starts from the VS Code settings of this machine; codeee's own settings sit on top. */
+  followVsCode: boolean;
   /** Shows the path and symbols above the editor, as `breadcrumbs.enabled`. */
   breadcrumbs: boolean;
   /** Wraps long lines at the editor's width, as VS Code's `editor.wordWrap`. */
@@ -192,6 +195,9 @@ export interface Config {
 export interface Session {
   open: string[];
   active: string | null;
+  /** The editor groups, each with its files and shown file, and the layout; absent for one group. */
+  groups?: { open: string[]; active: string | null }[];
+  layout?: "horizontal" | "vertical";
 }
 
 /** What codeee remembers between runs. */
@@ -417,6 +423,47 @@ let lastProblems: string[] = [];
 export const configProblems = () => lastProblems;
 
 /** @returns the defaults with the user's changes laid over them, every unusable value replaced by its default */
+/**
+ * The defaults codeee starts from: its own, with the VS Code settings of this machine laid over them when
+ * `settings.followVsCode` is on (in the user file or the defaults).
+ * @param stored what the user file holds, for its `followVsCode`
+ * @returns the base the user's settings are laid over and compared with
+ */
+export const baseDefaults = (
+  stored: Record<string, unknown> = readStoredQuietly(),
+): Config => {
+  const defaults = loadDefaults();
+  const follow =
+    ((stored.settings as Record<string, unknown> | undefined)?.followVsCode ??
+      defaults.settings.followVsCode) !== false;
+  if (!follow) return defaults;
+  const fromEditor = fromVsCode(readVsCodeSettings());
+  if (fromEditor.settings.exclude)
+    fromEditor.settings.exclude = [
+      ...new Set([
+        ...defaults.settings.exclude,
+        ...(fromEditor.settings.exclude as string[]),
+      ]),
+    ];
+  if (fromEditor.settings.searchExclude)
+    fromEditor.settings.searchExclude = [
+      ...new Set([
+        ...defaults.settings.searchExclude,
+        ...(fromEditor.settings.searchExclude as string[]),
+      ]),
+    ];
+  return checkConfig(overlay(defaults, fromEditor), defaults).config;
+};
+
+/** @returns what the user file holds, or nothing when it cannot be read */
+const readStoredQuietly = () => {
+  try {
+    return readUserFile().stored;
+  } catch {
+    return {};
+  }
+};
+
 export const loadConfig = (): Config => {
   const defaults = loadDefaults();
   let stored: Record<string, unknown> = {};
@@ -427,7 +474,7 @@ export const loadConfig = (): Config => {
     if (!(error instanceof ConfigError)) throw error;
     problems.push(error.message);
   }
-  const checked = checkConfig(overlay(defaults, stored), defaults);
+  const checked = checkConfig(overlay(baseDefaults(stored), stored), defaults);
   lastProblems = [...problems, ...checked.problems];
   return checked.config;
 };
@@ -475,7 +522,7 @@ const writeAtomically = (path: string, text: string) => {
  */
 export const saveConfig = (config: Config) => {
   const { text, stored } = readUserFile();
-  const wanted = (difference(config, loadDefaults()) ?? {}) as Record<
+  const wanted = (difference(config, baseDefaults(stored)) ?? {}) as Record<
     string,
     unknown
   >;
@@ -493,7 +540,7 @@ export const saveConfig = (config: Config) => {
  * @throws ConfigError as `saveConfig` does
  */
 export const resetConfig = (): Config => {
-  saveConfig({ ...loadDefaults(), state: loadConfig().state });
+  saveConfig({ ...baseDefaults(), state: loadConfig().state });
   return loadConfig();
 };
 

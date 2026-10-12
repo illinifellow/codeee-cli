@@ -31,7 +31,7 @@ import { Icons, loadIconTheme } from "@/icons";
 import { dispatchKeys } from "@/keys";
 import { loadAssociations } from "@/languages";
 import { mouse, startMouse } from "@/mouse";
-import { dispatchMouse } from "@/mouse/regions";
+import { dispatchMouse, onHoverOutside } from "@/mouse/regions";
 import { readEditorTheme, readSyntaxTheme, type EditorTheme } from "@/syntax";
 import { queryBackground, terminalBackground } from "@/terminal";
 import { resolveTheme, LIGHT_THEME, type Theme } from "@/theme";
@@ -120,6 +120,7 @@ const Editor = ({
     );
     created.restart = onRestart;
     activeWorkbench = created;
+    onHoverOutside((event) => event && created.hover(null));
     if (startFile) created.open(startFile);
     return created;
   }, []);

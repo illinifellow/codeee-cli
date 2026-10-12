@@ -1003,6 +1003,40 @@ export const CodeView = memo(
             workbench.changed();
           };
         }}
+        onHover={(event) => {
+          const drawn = tab.drawnRows?.[event.localY];
+          if (
+            !drawn ||
+            drawn.line >= document.lines.length ||
+            event.localX < gutter
+          )
+            return workbench.hover(null);
+          const column = columnAt(
+            document.lines[drawn.line],
+            event.localX - gutter + drawn.left,
+            document.indentation.size,
+          );
+          const problem = (tab.diagnostics ?? []).find(
+            (entry) =>
+              (entry.line < drawn.line ||
+                (entry.line === drawn.line && entry.start <= column)) &&
+              (entry.endLine > drawn.line ||
+                (entry.endLine === drawn.line && entry.end > column)),
+          );
+          workbench.hover(
+            problem
+              ? {
+                  text: `${problem.message}${problem.rule ? `  eslint(${problem.rule})` : ""}`,
+                  x: event.x,
+                  y: event.y,
+                  color:
+                    problem.severity === "error"
+                      ? palette.danger
+                      : palette.warning,
+                }
+              : null,
+          );
+        }}
         onDoubleClick={(event) => {
           const position = pointAt(event);
           if (!position) return;

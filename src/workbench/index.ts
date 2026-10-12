@@ -23,8 +23,8 @@ import {
   type FSWatcher,
 } from "node:fs";
 import {
+  baseDefaults,
   loadConfig,
-  loadDefaults,
   saveConfig,
   saveState,
   ConfigError,
@@ -275,6 +275,24 @@ interface Command {
 
 let nextTabId = 1;
 
+/** Words of each document by version, so suggestions do not read the whole text on every key. */
+const WORDS = new WeakMap<
+  Document,
+  { version: number; words: Map<string, number> }
+>();
+
+/** @returns the words of a document and how often each occurs */
+const wordsOf = (document: Document) => {
+  const cached = WORDS.get(document);
+  if (cached?.version === document.version) return cached.words;
+  const words = new Map<string, number>();
+  for (const text of document.lines)
+    for (const match of text.matchAll(/[\p{L}_$][\p{L}\p{N}_$]{2,}/gu))
+      words.set(match[0], (words.get(match[0]) ?? 0) + 1);
+  WORDS.set(document, { version: document.version, words });
+  return words;
+};
+
 /** Shows a file in the Finder, or the platform's file manager. */
 const revealInFinder = (path: string) => {
   const [command, args] =
@@ -290,6 +308,9 @@ const revealInFinder = (path: string) => {
 
 /** How often git's status is read again, for commits and staging made elsewhere (the watcher skips `.git`). */
 const GIT_POLL_MS = 3000;
+
+/** How long the pointer rests before a tooltip shows, as VS Code's `editor.hover.delay`. */
+const HOVER_DELAY_MS = 300;
 
 /** The most suggestions the list shows, as VS Code's suggest widget. */
 const SUGGESTIONS = 12;
@@ -326,6 +347,8 @@ export class Workbench {
   /** The screen cells each group spans, set by the screen, for dropping dragged tabs. */
   groupBounds: { left: number; right: number; top: number; bottom: number }[] =
     [];
+  /** The editor groups' sizes along the split, as dragged; equal when empty. */
+  groupSizes: number[] = [];
   /** Zen Mode hides the explorer, the toolbar and the breadcrumbs. */
   zen = false;
   /** Groups side by side, or stacked, as View: Toggle Vertical/Horizontal Editor Layout. */
@@ -535,13 +558,42 @@ export class Workbench {
       (paths) => this.changedOnDisk(paths),
     );
     const session = this.config.state.sessions[root];
-    for (const path of session?.open ?? [])
-      if (modifiedTime(path)) this.open(path, { quiet: true });
-    const active = session?.active
-      ? this.tabs.findIndex((tab) => tab.path === session.active)
-      : -1;
-    if (active >= 0) this.active = active;
+    const groups = session?.groups?.length
+      ? session.groups
+      : [{ open: session?.open ?? [], active: session?.active ?? null }];
+    groups.forEach((saved, index) => {
+      if (index) {
+        this.groups.push({ tabs: [], active: -1 });
+        this.group = index;
+      }
+      for (const path of saved.open)
+        if (modifiedTime(path)) this.open(path, { quiet: true });
+      const active = saved.active
+        ? this.tabs.findIndex((tab) => tab.path === saved.active)
+        : -1;
+      if (active >= 0) this.active = active;
+    });
+    this.groups = this.groups.filter(
+      (group) => group.tabs.length || this.groups.length === 1,
+    );
+    if (!this.groups.length) this.groups = [{ tabs: [], active: -1 }];
+    this.group = 0;
+    this.layout = session?.layout ?? "horizontal";
     for (const backup of readBackups()) {
+      const untitled = `untitled:${root}:`;
+      if (backup.path.startsWith(untitled)) {
+        const title = backup.path.slice(untitled.length);
+        const tab = this.createTab(null, title, "", null);
+        tab.document!.setText(backup.text);
+        this.tabs.push(tab);
+        this.untitled = Math.max(
+          this.untitled,
+          Number(/\d+$/.exec(title)?.[0] ?? 0),
+        );
+        removeBackup(backup.path);
+        if (this.active < 0) this.active = 0;
+        continue;
+      }
       if (!backup.path.startsWith(`${root}/`) || !modifiedTime(backup.path))
         continue;
       const before = this.active;
@@ -633,6 +685,22 @@ export class Workbench {
     const existing = this.tabs.findIndex((tab) => tab.path === path);
     if (existing >= 0) {
       this.active = existing;
+    } else if (
+      this.allTabs().some((tab) => tab.path === path && tab.document)
+    ) {
+      const twin = this.allTabs().find(
+        (tab) => tab.path === path && tab.document,
+      )!;
+      const copy: Tab = {
+        ...twin,
+        id: nextTabId++,
+        preview: false,
+        folds: new Set(twin.folds ?? []),
+        scrollTop: 0,
+        scrollLeft: 0,
+      };
+      this.tabs.splice(this.tabs.length ? this.active + 1 : 0, 0, copy);
+      this.active = this.tabs.indexOf(copy);
     } else {
       const contents = readText(path, this.config.limits.maxFileMegabytes);
       const notice =
@@ -921,6 +989,14 @@ export class Workbench {
         ),
       ],
       active: this.tab?.path ?? null,
+      groups:
+        this.groups.length > 1
+          ? this.groups.map((group) => ({
+              open: group.tabs.flatMap((tab) => (tab.path ? [tab.path] : [])),
+              active: group.tabs[group.active]?.path ?? null,
+            }))
+          : undefined,
+      layout: this.groups.length > 1 ? this.layout : undefined,
     };
     try {
       saveState(state);
@@ -952,6 +1028,7 @@ export class Workbench {
                 ? value
                 : resolve(this.root, value.trim());
               if (!value.trim()) return "A file name must be provided.";
+              removeBackup(this.backupKey(tab));
               tab.path = path;
               tab.title = basename(path);
               tab.language = languageOf(path, tab.document!.lines[0]);
@@ -1054,16 +1131,8 @@ export class Workbench {
       this.onQuit();
     };
     if (!dirty.length) return leave();
-    if (
-      this.config.settings.hotExit === "onExit" &&
-      dirty.every((tab) => tab.path)
-    ) {
-      for (const tab of dirty)
-        writeBackup({
-          path: tab.path!,
-          text: tab.document!.text(),
-          modified: tab.modified,
-        });
+    if (this.config.settings.hotExit === "onExit") {
+      this.backupAll();
       return leave();
     }
     this.ask({
@@ -1870,6 +1939,11 @@ export class Workbench {
           : new Map<number, LineChange>(),
       ]);
       if (document.version !== version) return;
+      for (const other of this.allTabs())
+        if (other.document === document) {
+          other.diagnostics = diagnostics;
+          other.changes = changes;
+        }
       tab.diagnostics = diagnostics;
       tab.changes = changes;
       this.changed();
@@ -2431,6 +2505,38 @@ export class Workbench {
     if (path) this.open(path);
   }
 
+  /** The explorer row under the pointer, drawn on the hover ground. */
+  hoverPath: string | null = null;
+  /** A tooltip near the pointer, as VS Code's hover: a problem's message, a tab's path. */
+  hoverTip: { text: string; x: number; y: number; color?: string } | null =
+    null;
+  private hoverTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /**
+   * Shows a tooltip after the pointer rests a moment, as VS Code's `editor.hover.delay`; `null` hides it.
+   * @param tip the text and the screen cell to show it at
+   */
+  hover(tip: { text: string; x: number; y: number; color?: string } | null) {
+    if (this.hoverTimer) clearTimeout(this.hoverTimer);
+    if (!tip) {
+      if (this.hoverPath) {
+        this.hoverPath = null;
+        this.changed();
+      }
+      if (this.hoverTip) {
+        this.hoverTip = null;
+        this.changed();
+      }
+      return;
+    }
+    if (this.hoverTip?.text === tip.text) return;
+    this.hoverTip = null;
+    this.hoverTimer = setTimeout(() => {
+      this.hoverTip = tip;
+      this.changed();
+    }, HOVER_DELAY_MS);
+  }
+
   /** The suggestion list at the cursor, as VS Code's IntelliSense with word-based suggestions and snippets. */
   suggest: {
     items: { label: string; kind: "word" | "snippet"; detail: string }[];
@@ -2461,9 +2567,8 @@ export class Workbench {
         .map((other) => other.document)
         .filter(Boolean),
     ))
-      for (const text of open!.lines)
-        for (const match of text.matchAll(/[\p{L}_$][\p{L}\p{N}_$]{2,}/gu))
-          words.set(match[0], (words.get(match[0]) ?? 0) + 1);
+      for (const [word, count] of wordsOf(open!))
+        words.set(word, (words.get(word) ?? 0) + count);
     if (document.lines[line].slice(column - prefix.length).startsWith(prefix)) {
       const own = /^[\p{L}\p{N}_$]+/u.exec(
         document.lines[line].slice(column - prefix.length),
@@ -2558,28 +2663,34 @@ export class Workbench {
     if (this.config.settings.hotExit === "off")
       return !this.allTabs().some((tab) => tab.document?.dirty);
     for (const tab of this.allTabs())
-      if (tab.path && tab.document?.dirty)
+      if (tab.document?.dirty)
         writeBackup({
-          path: tab.path,
+          path: this.backupKey(tab),
           text: tab.document.text(),
           modified: tab.modified,
         });
-    return !this.allTabs().some((tab) => !tab.path && tab.document?.dirty);
+    return true;
+  }
+
+  /** @returns where a tab's unsaved text is kept: its path, or `untitled:<folder>:<title>` for an untitled file */
+  private backupKey(tab: Tab) {
+    return tab.path ?? `untitled:${this.root}:${tab.title}`;
   }
 
   /** Keeps a changed file's text in a backup a moment after the last edit, for hot exit and crashes. */
   private scheduleBackup(tab: Tab) {
-    if (!tab.path || this.config.settings.hotExit === "off") return;
+    if (this.config.settings.hotExit === "off") return;
     if (tab.backupTimer) clearTimeout(tab.backupTimer);
     tab.backupTimer = setTimeout(() => {
-      if (!tab.path || !tab.document) return;
-      if (tab.document.dirty)
+      if (!tab.document) return;
+      const key = this.backupKey(tab);
+      if (tab.document.dirty && (tab.path || tab.document.text()))
         writeBackup({
-          path: tab.path,
+          path: key,
           text: tab.document.text(),
           modified: tab.modified,
         });
-      else removeBackup(tab.path);
+      else removeBackup(key);
     }, BACKUP_DELAY_MS);
   }
 
@@ -3010,10 +3121,14 @@ export class Workbench {
         : null);
     const previous = this.find;
     this.find = {
-      query: seed ? field(seed) : (previous?.query ?? field()),
+      query: seed
+        ? field(seed, true)
+        : previous?.query
+          ? { ...previous.query, selected: true }
+          : field(),
       replacement: previous?.replacement ?? field(),
       replacing,
-      field: replacing && seed ? "replacement" : "query",
+      field: replacing && selected ? "replacement" : "query",
       options: previous?.options ?? {
         caseSensitive: false,
         regex: false,
@@ -4045,7 +4160,7 @@ export class Workbench {
         action: "explorer",
         label: "View: Toggle Primary Side Bar Visibility",
         run: () =>
-          this.side === "search"
+          this.side !== "explorer"
             ? this.showExplorer()
             : this.setSetting(
                 "settings.explorer",
@@ -4235,7 +4350,7 @@ export class Workbench {
                   const path = isAbsolute(value)
                     ? value
                     : resolve(this.root, value.trim());
-                  if (tab.path && path !== tab.path) removeBackup(tab.path);
+                  if (path !== tab.path) removeBackup(this.backupKey(tab));
                   tab.path = path;
                   tab.title = basename(path);
                   tab.language = languageOf(path, tab.document!.lines[0]);
@@ -4651,7 +4766,5 @@ export class Workbench {
   }
 }
 
-let defaultsCache: Config | null = null;
-
 /** @returns the shipped defaults, read once */
-const loadDefaultsCached = (): Config => (defaultsCache ??= loadDefaults());
+const loadDefaultsCached = (): Config => baseDefaults();

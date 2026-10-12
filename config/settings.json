@@ -1,6 +1,7 @@
 {
   "settings": {
     "theme": "auto",
+    "followVsCode": true,
     "tabSize": 2,
     "insertSpaces": true,
     "detectIndentation": true,

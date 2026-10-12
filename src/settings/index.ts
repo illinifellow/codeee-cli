@@ -271,6 +271,15 @@ export const SETTINGS: SettingSpec[] = [
     { common: true },
   ),
   setting(
+    "settings.followVsCode",
+    "Workbench",
+    "Appearance",
+    "Follow VS Code",
+    "Start from the settings of the VS Code on this machine: indentation, word wrap, whitespace, minimap, line numbers, saving, the explorer and more. Settings changed here take precedence.",
+    "boolean",
+    { common: true },
+  ),
+  setting(
     "settings.iconTheme",
     "Workbench",
     "Appearance",
