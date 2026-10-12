@@ -143,6 +143,12 @@ const KEYS: [string, string, string, string][] = [
   ],
   ["goForward", "Go", "Go Forward", "Go forward again after Go Back."],
   [
+    "blockComment",
+    "Edit",
+    "Toggle Block Comment",
+    "Wrap the selection in a block comment, or unwrap it.",
+  ],
+  [
     "reopenClosed",
     "View",
     "Reopen Closed Editor",

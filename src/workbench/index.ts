@@ -986,14 +986,26 @@ export class Workbench {
    * @param index the tab
    * @returns once formatted; a failure is shown in the toolbar
    */
-  async formatDocument(index = this.active) {
+  async formatDocument(index = this.active, selection = false) {
     const tab = this.tabs[index];
     const document = tab?.document;
     if (!tab || !document) return;
     const path = tab.path ?? join(this.root, tab.title);
     const version = document.version;
+    const offset = (position: Position) =>
+      document.lines
+        .slice(0, position.line)
+        .reduce((total, line) => total + line.length + document.eol.length, 0) +
+      position.column;
+    const [start, end] = document.range();
     try {
-      const formatted = await formatText(path, document.text());
+      const formatted = await formatText(
+        path,
+        document.text(),
+        selection && document.hasSelection
+          ? [offset(start), offset(end)]
+          : undefined,
+      );
       if (document.version !== version) return;
       if (document.setText(formatted)) this.afterEdit();
     } catch (error) {
@@ -3566,6 +3578,39 @@ export class Workbench {
       },
       { action: "goBack", label: "Go Back", run: () => this.navigate(-1) },
       { action: "goForward", label: "Go Forward", run: () => this.navigate(1) },
+      {
+        action: "formatSelection",
+        label: "Format Selection",
+        run: () => void this.formatDocument(this.active, true),
+      },
+      {
+        action: "blockComment",
+        label: "Toggle Block Comment",
+        run: () =>
+          this.withDocument((document) => {
+            const comment = commentOf(this.tab!.language);
+            const pair: [string, string] =
+              comment && "block" in comment ? comment.block : ["/*", "*/"];
+            const [start, end] = document.range();
+            const text = document.selectedText();
+            const trimmed = text.trim();
+            const next =
+              trimmed.startsWith(pair[0]) && trimmed.endsWith(pair[1])
+                ? text
+                    .replace(pair[0], "")
+                    .replace(
+                      new RegExp(
+                        `${pair[1].replace(/[*/]/g, "\\$&")}(?![\\s\\S]*${pair[1].replace(/[*/]/g, "\\$&")})`,
+                      ),
+                      "",
+                    )
+                    .replace(/^ /, "")
+                    .replace(/ $/, "")
+                : `${pair[0]} ${text} ${pair[1]}`;
+            const after = document.replace(start, end, next, "edit");
+            document.select(start, after);
+          }),
+      },
       {
         action: "addNextOccurrence",
         label: "Add Selection To Next Find Match",

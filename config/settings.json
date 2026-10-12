@@ -115,7 +115,8 @@
     "unfoldAll": "alt+=",
     "duplicateLineUp": "alt+shift+up",
     "goBack": "ctrl+alt+left",
-    "goForward": "ctrl+alt+right"
+    "goForward": "ctrl+alt+right",
+    "blockComment": "alt+shift+a"
   },
   "themes": {
     "golden-brown": {
