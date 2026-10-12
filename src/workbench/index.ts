@@ -2141,17 +2141,28 @@ export class Workbench {
   }
 
   /** Opens the changes of the active file against its last commit in a tab, as VS Code's Open Changes. */
-  async openChanges() {
+  async openChanges(saved = false) {
     const source = this.tab?.kind === "diff" ? this.tab.source : this.tab;
     if (!source?.path || !source.document)
       return this.say("Open Changes needs a file in a git repository");
-    const rows = await inlineDiff(source.path, source.document.text());
+    const disk = saved
+      ? readText(source.path, this.config.limits.maxFileMegabytes)
+      : null;
+    const rows = await inlineDiff(
+      source.path,
+      source.document.text(),
+      3,
+      disk?.kind === "text" ? disk.text : undefined,
+    );
     if (!rows) return this.say(`${source.title} is not tracked by git`);
     const existing = this.tabs.findIndex(
       (tab) => tab.kind === "diff" && tab.source === source,
     );
     if (existing >= 0) {
       this.tabs[existing].diff = rows;
+      this.tabs[existing].title = saved
+        ? `${source.title} (Saved ↔ Editor)`
+        : `${source.title} (Working Tree)`;
       return this.activate(existing);
     }
     const tab: Tab = {
@@ -2160,7 +2171,9 @@ export class Workbench {
       source,
       diff: rows,
       path: null,
-      title: `${source.title} (Working Tree)`,
+      title: saved
+        ? `${source.title} (Saved ↔ Editor)`
+        : `${source.title} (Working Tree)`,
       document: null,
       highlight: null,
       language: null,
@@ -2650,6 +2663,10 @@ export class Workbench {
       case "escape":
         if (this.find) {
           this.find = null;
+          break;
+        }
+        if (this.zen && !document.hasSelection && !document.extras.length) {
+          this.zen = false;
           break;
         }
         document.setCursor(document.cursor);
@@ -3882,6 +3899,85 @@ export class Workbench {
             "settings.breadcrumbs",
             !this.config.settings.breadcrumbs,
           ),
+      },
+      {
+        action: "saveAll",
+        label: "File: Save All",
+        run: () => {
+          for (const [group, entry] of this.groups.entries()) {
+            this.group = group;
+            entry.tabs.forEach((tab, index) => {
+              if (tab.document?.dirty && tab.path) this.save(index);
+            });
+          }
+        },
+      },
+      {
+        action: "saveAs",
+        label: "File: Save As...",
+        run: () => {
+          const tab = this.tab;
+          if (!tab?.document) return;
+          this.ask({
+            title: "Save As",
+            message: `Path, relative to ${basename(this.root)}`,
+            input: field(
+              tab.path ? relativeTo(this.root, tab.path) : tab.title,
+              true,
+            ),
+            buttons: [
+              {
+                label: "Save",
+                primary: true,
+                run: (value) => {
+                  if (!value.trim()) return "A file name must be provided.";
+                  const path = isAbsolute(value)
+                    ? value
+                    : resolve(this.root, value.trim());
+                  if (tab.path && path !== tab.path) removeBackup(tab.path);
+                  tab.path = path;
+                  tab.title = basename(path);
+                  this.save(this.active);
+                },
+              },
+              { label: "Cancel", run: () => undefined },
+            ],
+          });
+        },
+      },
+      {
+        action: "revertFile",
+        label: "File: Revert File",
+        run: () => {
+          const tab = this.tab;
+          if (!tab?.path || !tab.document) return;
+          const contents = readText(
+            tab.path,
+            this.config.limits.maxFileMegabytes,
+          );
+          if (contents.kind !== "text") return;
+          tab.document.setText(contents.text);
+          tab.document.markSaved();
+          removeBackup(tab.path);
+          this.afterEdit();
+        },
+      },
+      {
+        action: "compareWithSaved",
+        label: "File: Compare Active File with Saved",
+        run: () => void this.openChanges(true),
+      },
+      {
+        action: "copyPath",
+        label: "File: Copy Path of Active File",
+        run: () => this.tab?.path && void this.copy(this.tab.path),
+      },
+      {
+        action: "copyRelativePath",
+        label: "File: Copy Relative Path of Active File",
+        run: () =>
+          this.tab?.path &&
+          void this.copy(relativeTo(this.root, this.tab.path)),
       },
       {
         action: "outline",

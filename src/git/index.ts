@@ -266,18 +266,19 @@ export interface DiffRow {
  * @param path the file
  * @param text the text in the editor
  * @param context unchanged lines kept around each change
+ * @param base the text to compare with instead of the last commit, as Compare with Saved does
  * @returns the rows, or `null` outside a repository or for an untracked file
  */
 export const inlineDiff = async (
   path: string,
   text: string,
   context = 3,
+  base?: string,
 ): Promise<DiffRow[] | null> => {
   const folder = path.slice(0, path.lastIndexOf("/"));
-  const committed = await run(
-    ["show", `HEAD:./${path.slice(folder.length + 1)}`],
-    folder,
-  );
+  const committed =
+    base ??
+    (await run(["show", `HEAD:./${path.slice(folder.length + 1)}`], folder));
   if (committed === null) return null;
   const scratch = mkdtempSync(join(tmpdir(), "codeee-diff-"));
   const [before, after] = [join(scratch, "a"), join(scratch, "b")];

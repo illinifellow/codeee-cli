@@ -117,7 +117,8 @@
     "duplicateLineUp": "alt+shift+up",
     "goBack": "ctrl+alt+left",
     "goForward": "ctrl+alt+right",
-    "blockComment": "alt+shift+a"
+    "blockComment": "alt+shift+a",
+    "saveAll": "alt+s"
   },
   "themes": {
     "golden-brown": {

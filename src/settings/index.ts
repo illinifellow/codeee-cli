@@ -148,6 +148,7 @@ const KEYS: [string, string, string, string][] = [
     "Toggle Block Comment",
     "Wrap the selection in a block comment, or unwrap it.",
   ],
+  ["saveAll", "File", "Save All", "Save every file with unsaved changes."],
   [
     "reopenClosed",
     "View",
