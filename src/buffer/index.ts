@@ -45,6 +45,8 @@ export interface FindOptions {
 export interface EditOptions {
   autoIndent: boolean;
   autoClosingBrackets: boolean;
+  /** Closes an HTML or JSX tag when its `>` is typed, as VS Code's auto closing tags. */
+  autoClosingTags?: boolean;
   /** Edits of the same kind closer than this many milliseconds undo together. */
   typingGroupMs: number;
   undoSteps: number;
@@ -79,6 +81,23 @@ const PAIRS: Record<string, string> = {
   "'": "'",
   "`": "`",
 };
+/** Elements without a closing tag, which auto-closing leaves alone. */
+const VOID_TAGS = new Set([
+  "area",
+  "base",
+  "br",
+  "col",
+  "embed",
+  "hr",
+  "img",
+  "input",
+  "link",
+  "meta",
+  "source",
+  "track",
+  "wbr",
+]);
+
 const QUOTES = "\"'`";
 
 /** Letters, digits and underscores, in any script. */
@@ -667,6 +686,22 @@ export class Document {
         return this.setCursor({
           ...this.cursor,
           column: this.cursor.column - 1,
+        });
+      }
+    }
+    if (text === ">" && !this.hasSelection && this.options.autoClosingTags) {
+      const tag = /<([A-Za-z][\w.:-]*)(?:\s[^<>]*?)?$/.exec(
+        line.slice(0, this.cursor.column),
+      );
+      if (
+        tag &&
+        !line.slice(0, this.cursor.column).endsWith("/") &&
+        !VOID_TAGS.has(tag[1].toLowerCase())
+      ) {
+        this.replace(start, end, `></${tag[1]}>`, "type");
+        return this.setCursor({
+          ...this.cursor,
+          column: this.cursor.column - tag[1].length - 3,
         });
       }
     }

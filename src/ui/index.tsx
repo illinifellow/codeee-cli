@@ -22,6 +22,7 @@ import { fit, widthOf } from "@/text";
 import { availableUpdate, installUpdate } from "@/update";
 import type { Workbench } from "@/workbench";
 import { CodeView } from "./editor";
+import { stickyLines } from "@/symbols";
 import { MarkdownView } from "./markdown";
 import { SearchView } from "./search";
 import { SettingsPage } from "./settings";
@@ -597,6 +598,20 @@ const Breadcrumbs = ({
         : tab
           ? [tab.title]
           : [];
+  const document = tab?.document;
+  if (document && tab) {
+    const symbols = workbench.symbolsOf(tab);
+    const { line } = document.cursor;
+    const openers = new Set([
+      ...stickyLines(document.lines, line + 1, 6),
+      line,
+    ]);
+    parts.push(
+      ...symbols
+        .filter((symbol) => openers.has(symbol.line))
+        .map((symbol) => symbol.name),
+    );
+  }
   return (
     <Text color={palette.textMuted}>
       {fit(parts.length ? ` ${parts.join(" › ")}` : "", width)}

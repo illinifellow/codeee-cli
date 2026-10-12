@@ -53,7 +53,7 @@ import { DocumentHighlight, SyntaxHighlighter } from "@/highlight";
 import { formatText } from "@/format";
 import { lintText, type Diagnostic } from "@/lint";
 import { expandSnippet, findSnippet, loadSnippets } from "@/snippets";
-import { fileSymbols } from "@/symbols";
+import { fileSymbols, type FileSymbol } from "@/symbols";
 import {
   replaceInFile,
   searchFolder,
@@ -521,6 +521,7 @@ export class Workbench {
     return {
       autoIndent: settings.autoIndent,
       autoClosingBrackets: settings.autoClosingBrackets,
+      autoClosingTags: settings.autoClosingBrackets,
       typingGroupMs: limits.typingGroupMs,
       undoSteps: limits.undoSteps,
     };
@@ -1361,6 +1362,22 @@ export class Workbench {
     }, this.config.limits.lintDelayMs);
   }
 
+  private symbolCache = new WeakMap<
+    Tab,
+    { version: number; symbols: FileSymbol[] }
+  >();
+
+  /** @returns the symbols of a tab's file, read once per text version */
+  symbolsOf(tab: Tab): FileSymbol[] {
+    const document = tab.document;
+    if (!document) return [];
+    const cached = this.symbolCache.get(tab);
+    if (cached?.version === document.version) return cached.symbols;
+    const symbols = fileSymbols(document.lines, tab.language);
+    this.symbolCache.set(tab, { version: document.version, symbols });
+    return symbols;
+  }
+
   /** Renames the word at the cursor everywhere in the file, as F2 does for a symbol, matching whole words and case. */
   renameSymbol() {
     const document = this.tab?.document;
@@ -1954,7 +1971,7 @@ export class Workbench {
       const document = tab?.document;
       const query = value.slice(1).trim();
       palette.items = document
-        ? fileSymbols(document.lines, tab!.language)
+        ? this.symbolsOf(tab!)
             .flatMap((symbol) => {
               const match = fuzzyMatch(symbol.name, query);
               return match
