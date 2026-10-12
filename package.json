@@ -1,6 +1,6 @@
 {
   "name": "codeee-cli",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "A code editor for the terminal, after VS Code: a file explorer, tabs, syntax highlighting in your VS Code theme, find and replace, and full mouse support.",
   "license": "MIT",
   "type": "module",
