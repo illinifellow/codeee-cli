@@ -115,6 +115,8 @@ export interface EditorSettings {
   minimap: boolean;
   /** Lints JavaScript and TypeScript with the project's ESLint and shows the problems at line ends, as Error Lens. */
   eslint: boolean;
+  /** Expands snippet prefixes on Tab. */
+  snippets: boolean;
   /** `off`, `afterDelay` or `onFocusChange`, as VS Code's `files.autoSave`. */
   autoSave: string;
   autoIndent: boolean;

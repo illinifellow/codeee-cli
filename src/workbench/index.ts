@@ -27,6 +27,7 @@ import {
   cellOf,
   columnAt,
   Document,
+  indentOf,
   type FindOptions,
   type Match,
   type Position,
@@ -51,6 +52,7 @@ import {
 import { DocumentHighlight, SyntaxHighlighter } from "@/highlight";
 import { formatText } from "@/format";
 import { lintText, type Diagnostic } from "@/lint";
+import { expandSnippet, findSnippet, loadSnippets } from "@/snippets";
 import {
   replaceInFile,
   searchFolder,
@@ -1316,6 +1318,48 @@ export class Workbench {
     }, this.config.limits.autoSaveDelayMs);
   }
 
+  /**
+   * Expands the snippet whose prefix is the word before the cursor, as Tab completion does in VS Code.
+   * @returns whether a snippet was inserted
+   */
+  private expandSnippet() {
+    const tab = this.tab;
+    const document = tab?.document;
+    if (
+      !tab ||
+      !document ||
+      document.hasSelection ||
+      !this.config.settings.snippets
+    )
+      return false;
+    const { line, column } = document.cursor;
+    const word = /[\w$.!-]+$/.exec(document.lines[line].slice(0, column))?.[0];
+    if (!word) return false;
+    loadSnippets();
+    const snippet = findSnippet(tab.language, word);
+    if (!snippet) return false;
+    const unit = document.indentation.useTabs
+      ? "\t"
+      : " ".repeat(document.indentation.size);
+    const expanded = expandSnippet(snippet.body, {
+      fileName: tab.title,
+      indent: indentOf(document.lines[line]),
+      unit,
+    });
+    const start = { line, column: column - word.length };
+    document.replace(start, document.cursor, expanded.text, "edit");
+    const before = expanded.text.slice(0, expanded.cursor).split("\n");
+    const at = {
+      line: line + before.length - 1,
+      column: (before.length === 1 ? start.column : 0) + before.at(-1)!.length,
+    };
+    document.select(at, {
+      line: at.line,
+      column: at.column + expanded.selected,
+    });
+    return true;
+  }
+
   /** After the text or cursor changed: keeps the cursor in view and the find results current. */
   afterEdit() {
     this.updateMatches(false);
@@ -1469,7 +1513,7 @@ export class Workbench {
         break;
       case "tab":
         if (key.shift) document.outdent();
-        else document.indent();
+        else if (!this.expandSnippet()) document.indent();
         break;
       case "escape":
         if (this.find) {

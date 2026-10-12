@@ -186,3 +186,22 @@ describe("themes", () => {
     expect(theme.colors.selection).toBe("#09585d");
   });
 });
+
+describe("snippets", () => {
+  it("fills placeholders, follows the indent and puts the cursor on the first tab stop", async () => {
+    const { expandSnippet } = await import("@/snippets");
+    const expanded = expandSnippet("const ${1:name} = () => {\n\t$0\n};", {
+      fileName: "a.ts",
+      indent: "  ",
+      unit: "  ",
+    });
+    expect(expanded.text).toBe("const name = () => {\n    \n  };");
+    expect(expanded.cursor).toBe(6);
+    const second = expandSnippet(
+      "export default function ${TM_FILENAME_BASE}() {\n\t$1\n}",
+      { fileName: "page.tsx", indent: "", unit: "  " },
+    );
+    expect(second.text).toBe("export default function page() {\n  \n}");
+    expect(second.cursor).toBe(35);
+  });
+});

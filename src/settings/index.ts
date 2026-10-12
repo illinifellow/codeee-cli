@@ -261,6 +261,33 @@ export const SETTINGS: SettingSpec[] = [
     "boolean",
   ),
   setting(
+    "settings.autoSave",
+    "Text Editor",
+    "Files",
+    "Auto Save",
+    "Controls auto save of editors that have unsaved changes.",
+    "enum",
+    {
+      common: true,
+      choices: [
+        {
+          value: "off",
+          description: "An editor with changes is never automatically saved.",
+        },
+        {
+          value: "afterDelay",
+          description:
+            "An editor with changes is automatically saved after a short delay.",
+        },
+        {
+          value: "onFocusChange",
+          description:
+            "An editor with changes is automatically saved when it loses focus.",
+        },
+      ],
+    },
+  ),
+  setting(
     "settings.formatOnSave",
     "Text Editor",
     "Formatting",
@@ -336,6 +363,23 @@ export const SETTINGS: SettingSpec[] = [
     "boolean",
   ),
   setting(
+    "settings.eslint",
+    "Text Editor",
+    "Cursor",
+    "ESLint",
+    "Lints JavaScript and TypeScript with the project's ESLint and shows each problem at the end of its line, as ESLint with Error Lens does.",
+    "boolean",
+    { common: true },
+  ),
+  setting(
+    "settings.snippets",
+    "Text Editor",
+    "Cursor",
+    "Tab Completion",
+    "Expands a snippet's prefix on Tab, with the snippets of your VS Code extensions and your own.",
+    "boolean",
+  ),
+  setting(
     "settings.wheelLines",
     "Text Editor",
     "Cursor",
@@ -377,6 +421,22 @@ export const SETTINGS: SettingSpec[] = [
       description,
       "key",
     ),
+  ),
+  setting(
+    "limits.lintDelayMs",
+    "Advanced",
+    "Timing",
+    "Lint Delay",
+    "Milliseconds after the last change before ESLint runs.",
+    "number",
+  ),
+  setting(
+    "limits.autoSaveDelayMs",
+    "Advanced",
+    "Timing",
+    "Auto Save Delay",
+    "Milliseconds after the last change before Auto Save saves.",
+    "number",
   ),
   setting(
     "limits.highlightChunkLines",
