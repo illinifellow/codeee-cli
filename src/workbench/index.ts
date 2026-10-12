@@ -438,6 +438,22 @@ export class Workbench {
     this.changed();
   }
 
+  /**
+   * Moves a tab to another place in its group, as dragging it along the tab bar does.
+   * @param group the group
+   * @param from the tab's index
+   * @param to where it goes
+   */
+  reorderTab(group: number, from: number, to: number) {
+    const entry = this.groups[group];
+    const [tab] = entry.tabs.splice(from, 1);
+    if (!tab) return;
+    entry.tabs.splice(to, 0, tab);
+    entry.active = entry.tabs.indexOf(tab);
+    this.saveSession();
+    this.changed();
+  }
+
   /** Removes groups left without tabs, keeping at least one. */
   private dropEmptyGroups() {
     const current = this.groups[this.group];
