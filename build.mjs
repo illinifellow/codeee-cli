@@ -5,14 +5,14 @@
  * ink run their production builds instead of the several times slower
  * development ones. `--watch` rebuilds on change.
  */
-import { chmodSync, writeFileSync } from "node:fs"
-import * as esbuild from "esbuild"
+import { chmodSync, writeFileSync } from "node:fs";
+import * as esbuild from "esbuild";
 
 /** The executable: production React unless the caller chose otherwise, then the app. */
 const LAUNCHER = `#!/usr/bin/env node
 process.env.NODE_ENV ??= "production"
 await import("./app.js")
-`
+`;
 
 const context = await esbuild.context({
   entryPoints: { app: "src/cli.tsx" },
@@ -25,14 +25,20 @@ const context = await esbuild.context({
   packages: "external",
   tsconfig: "tsconfig.json",
   logLevel: "info",
-  plugins: [{ name: "launcher", setup: build => build.onEnd(() => {
-    writeFileSync("dist/cli.js", LAUNCHER)
-    chmodSync("dist/cli.js", 0o755)
-  }) }],
-})
+  plugins: [
+    {
+      name: "launcher",
+      setup: (build) =>
+        build.onEnd(() => {
+          writeFileSync("dist/cli.js", LAUNCHER);
+          chmodSync("dist/cli.js", 0o755);
+        }),
+    },
+  ],
+});
 
-if (process.argv.includes("--watch")) await context.watch()
+if (process.argv.includes("--watch")) await context.watch();
 else {
-  await context.rebuild()
-  await context.dispose()
+  await context.rebuild();
+  await context.dispose();
 }

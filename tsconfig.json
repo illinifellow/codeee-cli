@@ -3,12 +3,8 @@
     "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "Bundler",
-    "lib": [
-      "ES2022"
-    ],
-    "types": [
-      "node"
-    ],
+    "lib": ["ES2023"],
+    "types": ["node"],
     "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
@@ -17,16 +13,9 @@
     "isolatedModules": true,
     "noEmit": true,
     "paths": {
-      "@/*": [
-        "./src/*"
-      ]
+      "@/*": ["./src/*"]
     },
     "jsx": "react-jsx"
   },
-  "include": [
-    "src",
-    "test",
-    "build.mjs",
-    "vitest.config.mjs"
-  ]
+  "include": ["src", "test", "build.mjs", "vitest.config.mjs"]
 }
