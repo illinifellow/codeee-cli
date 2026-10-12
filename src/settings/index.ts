@@ -248,6 +248,14 @@ export const SETTINGS: SettingSpec[] = [
     "boolean",
   ),
   setting(
+    "settings.compactFolders",
+    "Workbench",
+    "Explorer",
+    "Compact Folders",
+    "Controls whether the Explorer should render folders in a compact form. In such a form, single child folders will be compressed in a combined tree element.",
+    "boolean",
+  ),
+  setting(
     "settings.confirmDelete",
     "Workbench",
     "Explorer",

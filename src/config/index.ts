@@ -134,6 +134,8 @@ export interface EditorSettings {
   wrapTabs: boolean;
   /** Asks before deleting from the explorer, as `explorer.confirmDelete`. */
   confirmDelete: boolean;
+  /** Folders holding a single folder show as one row, as `explorer.compactFolders`. */
+  compactFolders: boolean;
   /** Pins the lines that open the blocks around the top of the editor, as VS Code's sticky scroll. */
   stickyScroll: boolean;
   /** Lints JavaScript and TypeScript with the project's ESLint and shows the problems at line ends, as Error Lens. */

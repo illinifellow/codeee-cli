@@ -469,7 +469,11 @@ export class Workbench {
     private onConfig: (config: Config) => void,
   ) {
     this.config = loadConfig();
-    this.tree = new FileTree(root, this.config.settings.exclude);
+    this.tree = new FileTree(
+      root,
+      this.config.settings.exclude,
+      this.config.settings.compactFolders,
+    );
     this.refreshGit();
     this.gitTimer = setInterval(() => this.refreshGit(), GIT_POLL_MS);
     this.watcher = watchFolder(
@@ -1035,6 +1039,7 @@ export class Workbench {
   reloadConfig() {
     this.config = loadConfig();
     this.tree.exclude = this.config.settings.exclude;
+    this.tree.compact = this.config.settings.compactFolders;
     this.tree.refresh();
     this.files = null;
     for (const tab of this.allTabs())

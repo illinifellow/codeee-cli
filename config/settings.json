@@ -17,6 +17,7 @@
     "showFoldingControls": "always",
     "wrapTabs": true,
     "confirmDelete": false,
+    "compactFolders": true,
     "stickyScroll": true,
     "eslint": true,
     "snippets": true,
