@@ -113,7 +113,9 @@
     "wordWrap": "alt+z",
     "foldAll": "alt+-",
     "unfoldAll": "alt+=",
-    "duplicateLineUp": "alt+shift+up"
+    "duplicateLineUp": "alt+shift+up",
+    "goBack": "ctrl+alt+left",
+    "goForward": "ctrl+alt+right"
   },
   "themes": {
     "golden-brown": {

@@ -277,6 +277,9 @@ const revealInFinder = (path: string) => {
 /** How often git's status is read again, for commits and staging made elsewhere (the watcher skips `.git`). */
 const GIT_POLL_MS = 3000;
 
+/** A cursor move farther than this many lines counts as a jump for Go Back. */
+const NAVIGATION_LINES = 10;
+
 /** How long after the last edit a file's unsaved text is backed up. */
 const BACKUP_DELAY_MS = 1000;
 
@@ -2067,6 +2070,30 @@ export class Workbench {
     this.restart();
   }
 
+  /** Where the cursor was at each jump, for Go Back and Go Forward. */
+  private back: { path: string; line: number; column: number }[] = [];
+  private forward: { path: string; line: number; column: number }[] = [];
+  private lastLocation: { path: string; line: number; column: number } | null =
+    null;
+  private navigating = false;
+
+  /**
+   * Returns to where the cursor was before the last jump, or goes forward again, as VS Code's Go Back and Go Forward.
+   * @param step -1 back, 1 forward
+   */
+  navigate(step: -1 | 1) {
+    const [from, to] =
+      step < 0 ? [this.back, this.forward] : [this.forward, this.back];
+    const target = from.pop();
+    if (!target) return;
+    if (this.lastLocation) to.push(this.lastLocation);
+    this.navigating = true;
+    if (target.path)
+      this.open(target.path, { line: target.line, column: target.column });
+    this.navigating = false;
+    this.changed();
+  }
+
   /** Opens the most recently closed tab again. */
   reopenClosed() {
     const path = this.closed.pop();
@@ -2318,6 +2345,24 @@ export class Workbench {
     const tab = this.tab;
     const document = tab?.document;
     if (!tab || !document) return;
+    const here = {
+      path: tab.path ?? "",
+      line: document.cursor.line,
+      column: document.cursor.column,
+    };
+    const last = this.lastLocation;
+    if (
+      center &&
+      last &&
+      !this.navigating &&
+      (last.path !== here.path ||
+        Math.abs(last.line - here.line) > NAVIGATION_LINES)
+    ) {
+      this.back.push(last);
+      if (this.back.length > 50) this.back.shift();
+      this.forward = [];
+    }
+    this.lastLocation = here;
     const rows = this.view.rows;
     const margin = Math.min(
       this.theme.spacing.scrollMargin,
@@ -3519,6 +3564,8 @@ export class Workbench {
         label: "Change All Occurrences",
         run: () => this.selectAllOccurrences(),
       },
+      { action: "goBack", label: "Go Back", run: () => this.navigate(-1) },
+      { action: "goForward", label: "Go Forward", run: () => this.navigate(1) },
       {
         action: "addNextOccurrence",
         label: "Add Selection To Next Find Match",
