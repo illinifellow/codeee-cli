@@ -1,12 +1,16 @@
-import { fileURLToPath } from "node:url"
-import { defineConfig } from "vitest/config"
+import { fileURLToPath } from "node:url";
+import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   resolve: { alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) } },
   test: {
     include: ["test/**/*.test.ts"],
     testTimeout: 30000,
-    env: { XDG_CONFIG_HOME: fileURLToPath(new URL("./coverage/xdg", import.meta.url)) },
+    env: {
+      XDG_CONFIG_HOME: fileURLToPath(
+        new URL("./coverage/xdg", import.meta.url),
+      ),
+    },
     coverage: {
       provider: "v8",
       include: ["src/**"],
@@ -14,4 +18,4 @@ export default defineConfig({
       reporter: ["text-summary", "json-summary"],
     },
   },
-})
+});

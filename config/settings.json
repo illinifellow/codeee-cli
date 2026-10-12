@@ -13,14 +13,7 @@
     "insertFinalNewline": false,
     "explorer": true,
     "wheelLines": 3,
-    "exclude": [
-      ".git",
-      ".svn",
-      ".hg",
-      "CVS",
-      ".DS_Store",
-      "Thumbs.db"
-    ],
+    "exclude": [".git", ".svn", ".hg", "CVS", ".DS_Store", "Thumbs.db"],
     "searchExclude": [
       "node_modules",
       "dist",
@@ -54,7 +47,8 @@
     "statusMs": 2500,
     "errorStatusMs": 6000,
     "updateCheckHours": 6,
-    "rememberedPositions": 500
+    "rememberedPositions": 500,
+    "recentFolders": 10
   },
   "columns": {
     "explorer": 30
@@ -136,7 +130,10 @@
         "replace": "\u21c4",
         "replaceAll": "\u21c9",
         "error": "\u2716",
-        "update": "\u27f3"
+        "update": "\u27f3",
+        "cursor": "\u258f",
+        "dropdown": "\u25be",
+        "settings": "\u2699"
       },
       "spacing": {
         "indent": 2,
@@ -149,7 +146,8 @@
         "editorMinWidth": 20,
         "findWidth": 28,
         "gutterPadding": 2,
-        "scrollMargin": 3
+        "scrollMargin": 3,
+        "pickerWidth": 90
       },
       "syntax": "vscode"
     },
@@ -200,7 +198,10 @@
         "replace": "\u21c4",
         "replaceAll": "\u21c9",
         "error": "\u2716",
-        "update": "\u27f3"
+        "update": "\u27f3",
+        "cursor": "\u258f",
+        "dropdown": "\u25be",
+        "settings": "\u2699"
       },
       "spacing": {
         "indent": 2,
@@ -213,7 +214,8 @@
         "editorMinWidth": 20,
         "findWidth": 28,
         "gutterPadding": 2,
-        "scrollMargin": 3
+        "scrollMargin": 3,
+        "pickerWidth": 90
       },
       "syntax": "light-plus"
     }
@@ -221,6 +223,7 @@
   "tokens": {},
   "state": {
     "sessions": {},
-    "positions": {}
+    "positions": {},
+    "recent": []
   }
 }

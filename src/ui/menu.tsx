@@ -2,23 +2,23 @@
  * The context menu: the actions for the row under the
  * cursor; ↑ ↓ choose, Enter runs, Esc closes.
  */
-import { Box, Text } from "ink"
-import { Clickable } from "@/mouse/regions"
-import { fit } from "@/text"
-import { useTheme } from "./theme"
+import { Box, Text } from "ink";
+import { Clickable } from "@/mouse/regions";
+import { fit } from "@/text";
+import { useTheme } from "./theme";
 
 /** One menu entry; `separator` draws a rule above it. */
 export interface MenuItem {
-  label: string
-  run: () => void
-  separator?: boolean
+  label: string;
+  run: () => void;
+  separator?: boolean;
 }
 
 /** An open menu. */
 export interface MenuState {
-  title: string
-  items: MenuItem[]
-  cursor: number
+  title: string;
+  items: MenuItem[];
+  cursor: number;
 }
 
 /**
@@ -29,22 +29,62 @@ export interface MenuState {
  * @param props.onChoose an entry was clicked, by index
  * @param props.onClose a click landed outside the entries
  */
-export const MenuBox = ({ state, width, height, onChoose, onClose }: { state: MenuState; width: number; height: number; onChoose: (index: number) => void; onClose: () => void }) => {
-  const { colors: palette, glyphs, spacing } = useTheme()
-  const boxWidth = Math.min(spacing.menuWidth, width - 4)
+export const MenuBox = ({
+  state,
+  width,
+  height,
+  onChoose,
+  onClose,
+}: {
+  state: MenuState;
+  width: number;
+  height: number;
+  onChoose: (index: number) => void;
+  onClose: () => void;
+}) => {
+  const { colors: palette, glyphs, spacing } = useTheme();
+  const boxWidth = Math.min(spacing.menuWidth, width - 4);
   return (
-    <Clickable width={width} height={height} justifyContent="center" alignItems="flex-start" paddingTop={2} onClick={onClose} onRightClick={onClose}>
-      <Box flexDirection="column" width={boxWidth} borderStyle="round" borderColor={palette.accent} borderBackgroundColor={palette.background} backgroundColor={palette.background}>
-        <Text bold color={palette.textMuted}>{fit(` ${state.title}`, boxWidth - 2)}</Text>
+    <Clickable
+      width={width}
+      height={height}
+      justifyContent="center"
+      alignItems="flex-start"
+      paddingTop={2}
+      onClick={onClose}
+      onRightClick={onClose}
+    >
+      <Box
+        flexDirection="column"
+        width={boxWidth}
+        borderStyle="round"
+        borderColor={palette.accent}
+        borderBackgroundColor={palette.background}
+        backgroundColor={palette.background}
+      >
+        <Text bold color={palette.textMuted}>
+          {fit(` ${state.title}`, boxWidth - 2)}
+        </Text>
         {state.items.map((item, index) => (
           <Box key={item.label} flexDirection="column">
-            {item.separator ? <Text color={palette.border}>{glyphs.rule.repeat(boxWidth - 2)}</Text> : null}
+            {item.separator ? (
+              <Text color={palette.border}>
+                {glyphs.rule.repeat(boxWidth - 2)}
+              </Text>
+            ) : null}
             <Clickable height={1} onClick={() => onChoose(index)}>
-              <Text backgroundColor={index === state.cursor ? palette.selection : undefined} color={palette.text}>{fit(` ${item.label}`, boxWidth - 2)}</Text>
+              <Text
+                backgroundColor={
+                  index === state.cursor ? palette.selection : undefined
+                }
+                color={palette.text}
+              >
+                {fit(` ${item.label}`, boxWidth - 2)}
+              </Text>
             </Clickable>
           </Box>
         ))}
       </Box>
     </Clickable>
-  )
-}
+  );
+};
