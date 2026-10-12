@@ -4576,6 +4576,15 @@ export class Workbench {
         run: () => this.withDocument((document) => document.deleteAllLeft()),
       },
       {
+        action: "toggleWhitespace",
+        label: "View: Toggle Render Whitespace",
+        run: () =>
+          this.setSetting(
+            "settings.renderWhitespace",
+            this.config.settings.renderWhitespace === "none" ? "all" : "none",
+          ),
+      },
+      {
         action: "outline",
         label: "View: Show Outline",
         run: () => {
