@@ -252,3 +252,65 @@ const runAny = (args: string[], cwd: string) =>
       (_error, stdout) => resolve(stdout ?? ""),
     ),
   );
+
+/** One line of an inline diff: unchanged, removed or added, with its line numbers on either side. */
+export interface DiffRow {
+  kind: "same" | "removed" | "added" | "hunk";
+  text: string;
+  oldLine?: number;
+  newLine?: number;
+}
+
+/**
+ * The changes of a file against its last commit, as VS Code's inline diff editor shows them.
+ * @param path the file
+ * @param text the text in the editor
+ * @param context unchanged lines kept around each change
+ * @returns the rows, or `null` outside a repository or for an untracked file
+ */
+export const inlineDiff = async (
+  path: string,
+  text: string,
+  context = 3,
+): Promise<DiffRow[] | null> => {
+  const folder = path.slice(0, path.lastIndexOf("/"));
+  const committed = await run(
+    ["show", `HEAD:./${path.slice(folder.length + 1)}`],
+    folder,
+  );
+  if (committed === null) return null;
+  const scratch = mkdtempSync(join(tmpdir(), "codeee-diff-"));
+  const [before, after] = [join(scratch, "a"), join(scratch, "b")];
+  writeFileSync(before, committed);
+  writeFileSync(after, text);
+  const output = await runAny(
+    ["diff", "--no-index", "--no-color", `-U${context}`, before, after],
+    folder,
+  );
+  rmSync(scratch, { recursive: true, force: true });
+  const rows: DiffRow[] = [];
+  let oldLine = 0;
+  let newLine = 0;
+  for (const line of output.split("\n")) {
+    const hunk = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@(.*)$/.exec(line);
+    if (hunk) {
+      oldLine = Number(hunk[1]);
+      newLine = Number(hunk[2]);
+      rows.push({ kind: "hunk", text: line });
+      continue;
+    }
+    if (!rows.length || line.startsWith("\\")) continue;
+    if (line.startsWith("-"))
+      rows.push({ kind: "removed", text: line.slice(1), oldLine: oldLine++ });
+    else if (line.startsWith("+"))
+      rows.push({ kind: "added", text: line.slice(1), newLine: newLine++ });
+    else if (line.startsWith(" "))
+      rows.push({
+        kind: "same",
+        text: line.slice(1),
+        oldLine: oldLine++,
+        newLine: newLine++,
+      });
+  }
+  return rows;
+};

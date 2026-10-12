@@ -77,6 +77,8 @@ import {
 import {
   blameLine,
   diffLines,
+  inlineDiff,
+  type DiffRow,
   readGitStatus,
   timeAgo,
   type GitStatus,
@@ -101,7 +103,9 @@ export type Focus = "editor" | "explorer" | "settings" | "search";
 /** An editor tab. */
 export interface Tab {
   id: number;
-  kind: "file" | "settings" | "preview";
+  kind: "file" | "settings" | "preview" | "diff";
+  /** The rows of a diff tab. */
+  diff?: DiffRow[];
   /** The Markdown file a preview shows. */
   source?: Tab;
   /** Absolute path; `null` for an untitled file and the settings page. */
@@ -1455,6 +1459,29 @@ export class Workbench {
           label: "Copy Relative Path",
           run: () => void this.copy(relativeTo(this.root, row.path)),
         },
+        { label: "Reveal in Finder", run: () => revealInFinder(row.path) },
+        ...(row.folder
+          ? [
+              {
+                label: "Find in Folder...",
+                run: () => {
+                  this.search.include = field(
+                    `${relativeTo(this.root, row.path)}/**`,
+                  );
+                  this.search.details = true;
+                  this.openSearch(false);
+                },
+              },
+            ]
+          : []),
+        {
+          label: "Copy",
+          separator: true,
+          run: () => void (this.copiedEntry = row.path),
+        },
+        ...(this.copiedEntry
+          ? [{ label: "Paste", run: () => this.pasteEntry(folder) }]
+          : []),
         {
           label: "Rename...",
           key: "F2",
@@ -2105,6 +2132,41 @@ export class Workbench {
     if (target.path)
       this.open(target.path, { line: target.line, column: target.column });
     this.navigating = false;
+    this.changed();
+  }
+
+  /** Opens the changes of the active file against its last commit in a tab, as VS Code's Open Changes. */
+  async openChanges() {
+    const source = this.tab?.kind === "diff" ? this.tab.source : this.tab;
+    if (!source?.path || !source.document)
+      return this.say("Open Changes needs a file in a git repository");
+    const rows = await inlineDiff(source.path, source.document.text());
+    if (!rows) return this.say(`${source.title} is not tracked by git`);
+    const existing = this.tabs.findIndex(
+      (tab) => tab.kind === "diff" && tab.source === source,
+    );
+    if (existing >= 0) {
+      this.tabs[existing].diff = rows;
+      return this.activate(existing);
+    }
+    const tab: Tab = {
+      id: nextTabId++,
+      kind: "diff",
+      source,
+      diff: rows,
+      path: null,
+      title: `${source.title} (Working Tree)`,
+      document: null,
+      highlight: null,
+      language: null,
+      scrollTop: 0,
+      scrollLeft: 0,
+      notice: null,
+      modified: 0,
+    };
+    this.tabs.splice(this.active + 1, 0, tab);
+    this.active++;
+    this.focus = "editor";
     this.changed();
   }
 
@@ -3782,6 +3844,11 @@ export class Workbench {
         run: () => this.selectAllOccurrences(),
       },
       {
+        action: "openChanges",
+        label: "Git: Open Changes",
+        run: () => void this.openChanges(),
+      },
+      {
         action: "problems",
         label: "View: Show Problems",
         run: () => this.showProblems(),
@@ -4028,7 +4095,7 @@ export class Workbench {
       else if (this.focus === "explorer") this.explorerKey(key);
       else if (this.focus === "search") this.searchKey(key);
       else if (this.focus === "settings") this.settingsKey(key);
-      else if (this.tab?.kind === "preview") {
+      else if (this.tab?.kind === "preview" || this.tab?.kind === "diff") {
         const step = {
           up: -1,
           down: 1,

@@ -24,6 +24,7 @@ import { availableUpdate, installUpdate } from "@/update";
 import type { Tab, Workbench } from "@/workbench";
 import { CodeView } from "./editor";
 import { stickyLines } from "@/symbols";
+import { DiffView } from "./diff";
 import { MarkdownView } from "./markdown";
 import { SearchView } from "./search";
 import { SettingsPage } from "./settings";
@@ -352,6 +353,14 @@ export const App = ({
                     workbench={workbench}
                     width={groupWidth}
                     height={rows}
+                  />
+                ) : shown.kind === "diff" ? (
+                  <DiffView
+                    workbench={workbench}
+                    tab={shown}
+                    width={groupWidth}
+                    height={rows}
+                    version={version}
                   />
                 ) : shown.kind === "preview" ? (
                   <MarkdownView
