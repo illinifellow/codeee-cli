@@ -4561,6 +4561,21 @@ export class Workbench {
         run: () => void this.openScm(),
       },
       {
+        action: "insertLineBelow",
+        label: "Insert Line Below",
+        run: () => this.withDocument((document) => document.insertLine(false)),
+      },
+      {
+        action: "insertLineAbove",
+        label: "Insert Line Above",
+        run: () => this.withDocument((document) => document.insertLine(true)),
+      },
+      {
+        action: "deleteAllLeft",
+        label: "Delete All Left",
+        run: () => this.withDocument((document) => document.deleteAllLeft()),
+      },
+      {
         action: "outline",
         label: "View: Show Outline",
         run: () => {
@@ -4821,7 +4836,19 @@ export class Workbench {
         (this.focus === "scm" && this.scm?.typing) ||
         (this.focus === "settings" &&
           (this.settingsView.searching || this.settingsView.editing));
-      const fieldKeys = ["copy", "cut", "paste", "selectAll", "undo", "redo"];
+      const fieldKeys = [
+        "copy",
+        "cut",
+        "paste",
+        "selectAll",
+        "undo",
+        "redo",
+        "deleteAllLeft",
+        "insertLineBelow",
+        "insertLineAbove",
+        "expandSelection",
+        "shrinkSelection",
+      ];
       if (command && !(typing && fieldKeys.includes(action))) command.run();
       else if (this.find?.field && this.focus === "editor") this.findKey(key);
       else if (this.focus === "explorer") this.explorerKey(key);

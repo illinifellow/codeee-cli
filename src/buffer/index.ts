@@ -1397,6 +1397,41 @@ export class Document {
     if (previous) this.select(previous[0], previous[1]);
   }
 
+  /**
+   * Opens an empty line below or above the cursor's line with its indentation, as VS Code's Insert Line Below/Above.
+   * @param above insert above instead of below
+   */
+  insertLine(above = false) {
+    const { line } = this.cursor;
+    const indent = indentOf(this.lines[line]);
+    if (above) {
+      this.replace(
+        { line, column: 0 },
+        { line, column: 0 },
+        `${indent}\n`,
+        "edit",
+      );
+      this.setCursor({ line, column: indent.length });
+    } else {
+      const end = { line, column: this.lines[line].length };
+      this.replace(end, end, `\n${indent}`, "edit");
+    }
+  }
+
+  /** Deletes from the cursor to the line's start, or the selection, as VS Code's Delete All Left. */
+  deleteAllLeft() {
+    if (this.hasSelection)
+      return void this.replace(...this.range(), "", "delete");
+    const { line, column } = this.cursor;
+    const indent = indentOf(this.lines[line]).length;
+    this.replace(
+      { line, column: column > indent ? indent : 0 },
+      this.cursor,
+      "",
+      "delete",
+    );
+  }
+
   /** @returns every selection, the main one included, as ordered ranges */
   allRanges(): [Position, Position][] {
     const ranges: [Position, Position][] = [this.range()];

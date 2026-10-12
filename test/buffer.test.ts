@@ -271,3 +271,17 @@ describe("several cursors and the clipboard", () => {
     expect(document.lines).toEqual(["a1 b1 x", "a2 b2 y"]);
   });
 });
+
+describe("line openers", () => {
+  it("inserts lines below and above with the indentation and deletes all left", () => {
+    const document = open("  a");
+    document.setCursor({ line: 0, column: 1 });
+    document.insertLine(false);
+    expect(document.lines).toEqual(["  a", "  "]);
+    document.insertLine(true);
+    expect(document.lines).toEqual(["  a", "  ", "  "]);
+    document.setCursor({ line: 0, column: 3 });
+    document.deleteAllLeft();
+    expect(document.lines[0]).toBe("  ");
+  });
+});

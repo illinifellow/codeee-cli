@@ -186,6 +186,24 @@ const KEYS: [string, string, string, string][] = [
     "Show the symbols of the file in the side bar.",
   ],
   [
+    "insertLineBelow",
+    "Edit",
+    "Insert Line Below",
+    "Open an empty line below the cursor's line.",
+  ],
+  [
+    "insertLineAbove",
+    "Edit",
+    "Insert Line Above",
+    "Open an empty line above the cursor's line.",
+  ],
+  [
+    "deleteAllLeft",
+    "Edit",
+    "Delete All Left",
+    "Delete from the cursor to the start of the line.",
+  ],
+  [
     "reopenClosed",
     "View",
     "Reopen Closed Editor",
