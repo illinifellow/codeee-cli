@@ -295,6 +295,23 @@ export const SETTINGS: SettingSpec[] = [
     "boolean",
   ),
   setting(
+    "settings.lineBlame",
+    "Text Editor",
+    "Cursor",
+    "Current Line Blame",
+    "Shows who last changed the line at the cursor, and when, at the end of the line, as GitLens does.",
+    "boolean",
+    { common: true },
+  ),
+  setting(
+    "settings.colorDecorators",
+    "Text Editor",
+    "Cursor",
+    "Color Decorators",
+    "Draws color literals such as #ff905c or rgb(255, 144, 92) on their own color, as Color Highlight does.",
+    "boolean",
+  ),
+  setting(
     "settings.wheelLines",
     "Text Editor",
     "Cursor",

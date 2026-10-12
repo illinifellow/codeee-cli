@@ -7,6 +7,8 @@
     "lineNumbers": true,
     "relativeLineNumbers": false,
     "highlightLine": true,
+    "lineBlame": true,
+    "colorDecorators": true,
     "autoIndent": true,
     "autoClosingBrackets": true,
     "trimTrailingWhitespace": false,

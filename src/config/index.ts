@@ -101,6 +101,10 @@ export interface EditorSettings {
   /** Line numbers counted from the cursor line, as neovim's `relativenumber`; the cursor line keeps its own number. */
   relativeLineNumbers: boolean;
   highlightLine: boolean;
+  /** Shows who last changed the cursor line, and when, at its end, as GitLens's current line blame. */
+  lineBlame: boolean;
+  /** Draws colour literals (`#ff905c`, `rgb(…)`) on their own colour, as Color Highlight does. */
+  colorDecorators: boolean;
   autoIndent: boolean;
   autoClosingBrackets: boolean;
   trimTrailingWhitespace: boolean;

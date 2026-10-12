@@ -57,7 +57,7 @@ import {
   type FileResult,
   type SearchMatch,
 } from "@/search";
-import { readGitStatus, type GitStatus } from "@/git";
+import { blameLine, readGitStatus, timeAgo, type GitStatus } from "@/git";
 import { Icons } from "@/icons";
 import { bindingOf, type KeyEvent } from "@/keys";
 import { commentOf, languageOf } from "@/languages";
@@ -218,6 +218,9 @@ let nextTabId = 1;
 /** How often git's status is read again, for commits and staging made elsewhere (the watcher skips `.git`). */
 const GIT_POLL_MS = 3000;
 
+/** How long the cursor rests on a line before its blame is read, as GitLens waits. */
+const BLAME_DELAY_MS = 250;
+
 /** The most matches the Search view collects, as VS Code's `search.maxResults`. */
 const SEARCH_MAX_MATCHES = 20000;
 
@@ -272,6 +275,10 @@ export class Workbench {
   private searchAbort: AbortController | null = null;
   private searchTimer: ReturnType<typeof setTimeout> | null = null;
   update: string | null = null;
+  /** The blame shown at the end of the cursor line, for one file, line and text version. */
+  blame: { path: string; line: number; version: number; text: string } | null =
+    null;
+  private blameTimer: ReturnType<typeof setTimeout> | null = null;
   /** Git's decorations for the explorer; `null` outside a repository. */
   git: GitStatus | null = null;
   private gitReading = false;
@@ -1226,6 +1233,39 @@ export class Workbench {
     if (!document) return;
     action(document);
     this.afterEdit();
+  }
+
+  /**
+   * Asks git who last changed the cursor line, after the cursor rests a moment; the answer is drawn at the line's end.
+   * Lines with unsaved changes show "You, Uncommitted changes", as GitLens does.
+   */
+  requestBlame() {
+    const tab = this.tab;
+    const document = tab?.document;
+    if (!tab?.path || !document || !this.config.settings.lineBlame || !this.git)
+      return;
+    const { line } = document.cursor;
+    const { path } = tab;
+    const version = document.version;
+    if (
+      this.blame?.path === path &&
+      this.blame.line === line &&
+      this.blame.version === version
+    )
+      return;
+    if (this.blameTimer) clearTimeout(this.blameTimer);
+    this.blameTimer = setTimeout(async () => {
+      const found = document.dirty ? null : await blameLine(path, line);
+      const text = document.dirty
+        ? "You, Uncommitted changes"
+        : !found
+          ? ""
+          : found.uncommitted
+            ? "You, Uncommitted changes"
+            : `${found.mine ? "You" : found.author}, ${timeAgo(found.time)} • ${found.summary}`;
+      this.blame = { path, line, version, text };
+      this.changed();
+    }, BLAME_DELAY_MS);
   }
 
   /** After the text or cursor changed: keeps the cursor in view and the find results current. */

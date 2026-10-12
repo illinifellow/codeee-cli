@@ -10,7 +10,7 @@ import { memo, type ReactNode } from "react";
 import type { Position } from "@/buffer";
 import type { Segment } from "@/highlight";
 import { Clickable, type LocalMouseEvent } from "@/mouse/regions";
-import { placeText } from "@/text";
+import { fit, placeText, widthOf } from "@/text";
 import type { Tab, Workbench } from "@/workbench";
 import { useTheme } from "./theme";
 
@@ -23,6 +23,49 @@ interface Piece {
   italic?: boolean;
   underline?: boolean;
 }
+
+/** Colour literals Color Highlight marks: hex in 3, 4, 6 or 8 digits, and `rgb()` / `rgba()`. */
+const COLOR_LITERAL =
+  /#(?:[0-9a-f]{8}|[0-9a-f]{6}|[0-9a-f]{3,4})(?![0-9a-z])|rgba?\(\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}\s*(?:,\s*[\d.]+\s*)?\)/gi;
+
+/**
+ * @param text one line
+ * @returns its colour literals with the colour each names, as `#rrggbb`
+ */
+export const colorSwatches = (text: string) => {
+  const swatches: { start: number; end: number; color: string }[] = [];
+  for (const match of text.matchAll(COLOR_LITERAL)) {
+    const literal = match[0];
+    let color: string;
+    if (literal.startsWith("#")) {
+      const digits = literal.slice(1);
+      color =
+        digits.length <= 4
+          ? `#${[...digits.slice(0, 3)].map((digit) => digit + digit).join("")}`
+          : `#${digits.slice(0, 6)}`;
+    } else {
+      const [red, green, blue] = literal.match(/\d+/g)!.map(Number);
+      if ([red, green, blue].some((channel) => channel > 255)) continue;
+      color = `#${[red, green, blue].map((channel) => channel.toString(16).padStart(2, "0")).join("")}`;
+    }
+    swatches.push({
+      start: match.index,
+      end: match.index + literal.length,
+      color: color.toLowerCase(),
+    });
+  }
+  return swatches;
+};
+
+/** @returns black or white, whichever reads on the colour */
+const contrastOn = (color: string) => {
+  const [red, green, blue] = [1, 3, 5].map(
+    (index) => parseInt(color.slice(index, index + 2), 16) / 255,
+  );
+  return 0.2126 * red + 0.7152 * green + 0.0722 * blue > 0.5
+    ? "#000000"
+    : "#ffffff";
+};
 
 const compare = (a: Position, b: Position) =>
   a.line - b.line || a.column - b.column;
@@ -45,6 +88,10 @@ const codeRow = (
     brackets: number[];
     cursor: number | null;
     lineBackground?: string;
+    /** Colour literals of the line, each drawn on its own colour. */
+    swatches: { start: number; end: number; color: string }[];
+    /** Text drawn after the line's end in the given colour, as the current line blame. */
+    after?: { text: string; color: string };
     colors: {
       selection: string;
       findMatch: string;
@@ -93,6 +140,9 @@ const codeRow = (
         (entry) => column >= entry.start && column < entry.end,
       );
       const atCursor = cursor === column;
+      const swatch = options.swatches.find(
+        (entry) => column >= entry.start && column < entry.end,
+      );
       const background = atCursor
         ? colors.cursor
         : selected(column)
@@ -103,7 +153,7 @@ const codeRow = (
               : colors.findMatch
             : brackets.includes(column)
               ? colors.bracket
-              : options.lineBackground;
+              : (swatch?.color ?? options.lineBackground);
       const visible =
         placed.start < left || end > left + width
           ? " ".repeat(
@@ -114,7 +164,9 @@ const codeRow = (
         text: visible,
         color: atCursor
           ? colors.cursorText
-          : (segment?.color ?? options.defaultColor),
+          : swatch && background === swatch.color
+            ? contrastOn(swatch.color)
+            : (segment?.color ?? options.defaultColor),
         background,
         bold: segment?.bold,
         italic: segment?.italic,
@@ -147,6 +199,16 @@ const codeRow = (
         push({ text: " ", background: colors.selection });
         used++;
       }
+    }
+    if (options.after && endCell >= left && width - used > 4) {
+      const text = fit(`   ${options.after.text}`, width - used).trimEnd();
+      push({
+        text,
+        color: options.after.color,
+        background: options.lineBackground,
+        italic: true,
+      });
+      used += widthOf(text);
     }
     if (used < width)
       push({
@@ -208,6 +270,8 @@ export const CodeView = memo(
     const bracket =
       focused || !selection ? document.matchingBracket(document.cursor) : null;
     tab.highlight?.request(tab.scrollTop + height + 50);
+    if (focused) workbench.requestBlame();
+    const blame = workbench.blame;
     const rows: ReactNode[] = [];
     for (let row = 0; row < height; row++) {
       const line = tab.scrollTop + row;
@@ -259,6 +323,16 @@ export const CodeView = memo(
             : [],
           cursor: focused && current ? document.cursor.column : null,
           lineBackground,
+          swatches: settings.colorDecorators
+            ? colorSwatches(document.lines[line])
+            : [],
+          after:
+            current &&
+            blame?.text &&
+            blame.line === line &&
+            blame.path === tab.path
+              ? { text: blame.text, color: palette.gutter }
+              : undefined,
           colors: palette,
         },
       );

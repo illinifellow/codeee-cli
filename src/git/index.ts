@@ -135,3 +135,67 @@ export const isIgnored = (status: GitStatus, path: string) => {
     if (status.ignored.has(current)) return true;
   return false;
 };
+
+/** Who last changed a line, as GitLens shows it at the end of the cursor line. */
+export interface LineBlame {
+  author: string;
+  /** Seconds since the epoch. */
+  time: number;
+  summary: string;
+  /** The line is not committed yet. */
+  uncommitted: boolean;
+  /** The author is the user git commits as here. */
+  mine: boolean;
+}
+
+/**
+ * Reads the blame of one line.
+ * @param path the file
+ * @param line 0-based line
+ * @returns who changed it and when, or `null` outside a repository or for an untracked file
+ */
+export const blameLine = async (
+  path: string,
+  line: number,
+): Promise<LineBlame | null> => {
+  const output = await run(
+    ["blame", "--porcelain", "-L", `${line + 1},${line + 1}`, "--", path],
+    path.slice(0, path.lastIndexOf("/")),
+  );
+  if (!output) return null;
+  const field = (name: string) =>
+    new RegExp(`^${name} (.*)$`, "m").exec(output)?.[1] ?? "";
+  const uncommitted = /^0{40}/.test(output);
+  const email = (
+    await run(["config", "user.email"], path.slice(0, path.lastIndexOf("/")))
+  )?.trim();
+  return {
+    mine: Boolean(email) && field("author-mail").replace(/[<>]/g, "") === email,
+    author: field("author"),
+    time: Number(field("author-time")),
+    summary: field("summary"),
+    uncommitted,
+  };
+};
+
+/**
+ * @param seconds a time in seconds since the epoch
+ * @param now the present, in milliseconds
+ * @returns how long ago, as GitLens words it: `3 minutes ago`, `2 years ago`
+ */
+export const timeAgo = (seconds: number, now = Date.now()) => {
+  const elapsed = Math.max(0, now / 1000 - seconds);
+  const units: [string, number][] = [
+    ["year", 31536000],
+    ["month", 2592000],
+    ["week", 604800],
+    ["day", 86400],
+    ["hour", 3600],
+    ["minute", 60],
+  ];
+  for (const [unit, size] of units) {
+    const count = Math.floor(elapsed / size);
+    if (count >= 1) return `${count} ${unit}${count === 1 ? "" : "s"} ago`;
+  }
+  return "just now";
+};
