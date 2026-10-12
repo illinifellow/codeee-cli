@@ -3296,6 +3296,88 @@ export class Workbench {
     this.changed();
   }
 
+  /** Opens the context menu of a search result row: replace or dismiss it, copy it, as VS Code's. */
+  searchMenu(index: number, x: number, y: number) {
+    const row = this.searchRows()[index];
+    if (!row) return;
+    this.search.cursor = index;
+    const view = this.search;
+    const dismiss = () => {
+      if (row.kind === "file")
+        view.results = view.results.filter((result) => result !== row.result);
+      else {
+        row.result.matches = row.result.matches.filter(
+          (match) => match !== row.match,
+        );
+        if (!row.result.matches.length)
+          view.results = view.results.filter((result) => result !== row.result);
+      }
+      this.changed();
+    };
+    this.menu = {
+      x,
+      y,
+      cursor: 0,
+      items: [
+        ...(view.replacing
+          ? [
+              {
+                label:
+                  row.kind === "file" ? "Replace All in This File" : "Replace",
+                run: () => {
+                  void this.replaceInFolder([
+                    row.kind === "file"
+                      ? row.result
+                      : { path: row.result.path, matches: [row.match] },
+                  ]);
+                },
+              },
+            ]
+          : []),
+        { label: "Dismiss", run: dismiss },
+        {
+          label: "Copy",
+          separator: true,
+          run: () =>
+            void this.copy(
+              row.kind === "file" ? row.result.path : row.match.text.trim(),
+            ),
+        },
+        { label: "Copy Path", run: () => void this.copy(row.result.path) },
+        {
+          label: "Copy All",
+          run: () =>
+            void this.copy(
+              view.results
+                .map((result) =>
+                  [
+                    result.path,
+                    ...result.matches.map(
+                      (match) => `  ${match.line + 1}: ${match.text.trim()}`,
+                    ),
+                  ].join("\n"),
+                )
+                .join("\n"),
+            ),
+        },
+        {
+          label: "Collapse All",
+          separator: true,
+          run: () =>
+            view.results.forEach((result) => view.collapsed.add(result.path)),
+        },
+        {
+          label: "Clear Search Results",
+          run: () => {
+            view.results = [];
+            view.query = field();
+          },
+        },
+      ],
+    };
+    this.changed();
+  }
+
   /** Asks, as VS Code does, then replaces every result. */
   confirmReplaceAll() {
     const view = this.search;
