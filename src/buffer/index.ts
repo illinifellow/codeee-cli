@@ -307,6 +307,7 @@ export class Document {
    * @param keepGoal keep the cell vertical moves aim for
    */
   setCursor(position: Position, select = false, keepGoal = false) {
+    this.extras = [];
     if (select) this.anchor ??= { ...this.cursor };
     else this.anchor = null;
     this.cursor = this.clamp(position);
@@ -682,8 +683,7 @@ export class Document {
         !next ||
         /\s/.test(next) ||
         CLOSING.includes(next) ||
-        next === ";" ||
-        next === ",";
+        ";:.,=>`".includes(next);
       if (
         !this.hasSelection &&
         closes &&
@@ -720,6 +720,20 @@ export class Document {
   newline() {
     const [start, end] = this.range();
     const line = this.lines[start.line];
+    if (
+      this.options.autoIndent &&
+      !this.hasSelection &&
+      line.length &&
+      !line.trim()
+    ) {
+      this.replace(
+        { line: start.line, column: 0 },
+        { line: start.line, column: line.length },
+        `\n${line}`,
+        "edit",
+      );
+      return;
+    }
     if (!this.options.autoIndent) return this.replace(start, end, "\n", "edit");
     const indent = indentOf(line).slice(0, start.column);
     const previous = line.slice(0, start.column).trimEnd().at(-1) ?? "";
@@ -943,10 +957,18 @@ export class Document {
     });
   }
 
-  /** Copies the selected lines, or the cursor's line, below themselves, as VS Code's Shift+Alt+↓. */
-  duplicateLines() {
+  /**
+   * Copies the selected lines, or the cursor's line, below or above themselves, as VS Code's Shift+Alt+↓ and ↑.
+   * @param up copy above, keeping the cursor on the upper copy
+   */
+  duplicateLines(up = false) {
     const [first, last] = this.selectedLines();
     const copy = this.lines.slice(first, last + 1);
+    if (up)
+      return this.replaceBlock(first, 0, copy, {
+        cursor: this.cursor,
+        anchor: this.anchor,
+      });
     const count = copy.length;
     const move = (position: Position) => ({
       line: position.line + count,
@@ -1170,6 +1192,159 @@ export class Document {
     return depths[Math.min(line, depths.length - 1)];
   }
 
+  /** Further cursors beside the main one, each with the start of its selection, as Add Next Occurrence makes them. */
+  extras: { anchor: Position; cursor: Position }[] = [];
+
+  /**
+   * Moves every cursor the same way, as arrows and Home/End do with several cursors in VS Code; cursors that meet merge.
+   * @param move the movement, applied to each cursor in turn
+   */
+  moveAll(move: (document: Document) => void) {
+    const all = [
+      { anchor: this.anchor, cursor: this.cursor },
+      ...this.extras.map((extra) => ({
+        anchor: same(extra.anchor, extra.cursor) ? null : extra.anchor,
+        cursor: extra.cursor,
+      })),
+    ];
+    const moved = all.map((selection) => {
+      this.extras = [];
+      this.anchor = selection.anchor;
+      this.cursor = selection.cursor;
+      this.goal = null;
+      move(this);
+      return { anchor: this.anchor, cursor: this.cursor };
+    });
+    const unique = moved.filter(
+      (selection, index) =>
+        moved.findIndex((other) => same(other.cursor, selection.cursor)) ===
+        index,
+    );
+    this.anchor = unique[0].anchor;
+    this.cursor = unique[0].cursor;
+    this.extras = unique.slice(1).map((selection) => ({
+      anchor: selection.anchor ?? selection.cursor,
+      cursor: selection.cursor,
+    }));
+  }
+
+  /** @returns every selection, the main one included, as ordered ranges */
+  allRanges(): [Position, Position][] {
+    const ranges: [Position, Position][] = [this.range()];
+    for (const extra of this.extras)
+      ranges.push(
+        before(extra.cursor, extra.anchor)
+          ? [extra.cursor, extra.anchor]
+          : [extra.anchor, extra.cursor],
+      );
+    return ranges;
+  }
+
+  /**
+   * Selects the word at the cursor, or adds a cursor at the next occurrence of the selected text, as VS Code's Add
+   * Selection To Next Find Match; the search wraps around the file.
+   * @returns whether a selection was made or added
+   */
+  addNextOccurrence() {
+    if (!this.hasSelection) {
+      const word = this.wordAt(this.cursor);
+      if (!word) return false;
+      this.anchor = word[0];
+      this.cursor = word[1];
+      return true;
+    }
+    const text = this.selectedText();
+    if (text.includes("\n")) return false;
+    const taken = this.allRanges();
+    const last = taken.reduce((latest, range) =>
+      before(latest[1], range[1]) ? range : latest,
+    );
+    const all = this.find(text, {
+      caseSensitive: true,
+      regex: false,
+      wholeWord: false,
+    });
+    const free = all.filter(
+      (match) =>
+        !taken.some(
+          ([start]) =>
+            start.line === match.line && start.column === match.start,
+        ),
+    );
+    const next =
+      free.find(
+        (match) =>
+          match.line > last[1].line ||
+          (match.line === last[1].line && match.start >= last[1].column),
+      ) ?? free[0];
+    if (!next) return false;
+    this.extras.push({
+      anchor: this.anchor ?? this.cursor,
+      cursor: this.cursor,
+    });
+    this.anchor = { line: next.line, column: next.start };
+    this.cursor = { line: next.line, column: next.end };
+    this.sealed = true;
+    return true;
+  }
+
+  /**
+   * Edits at every cursor in one undo step: typing, Backspace or Delete, each within its line.
+   * @param action what to do at each cursor
+   * @param text what to type, for `type`
+   */
+  editAll(action: "type" | "backspace" | "delete", text = "") {
+    const ranges = this.allRanges().filter(
+      ([start, end]) => start.line === end.line,
+    );
+    if (!ranges.length) return;
+    const first = Math.min(...ranges.map(([start]) => start.line));
+    const last = Math.max(...ranges.map(([start]) => start.line));
+    const beforeLines = this.lines.slice(first, last + 1);
+    const work = [...beforeLines];
+    const order = ranges
+      .map((range, index) => ({ range, index }))
+      .sort(
+        (a, b) =>
+          b.range[0].line - a.range[0].line ||
+          b.range[0].column - a.range[0].column,
+      );
+    const carets: Position[] = [];
+    for (const { range, index } of order) {
+      const [start, end] = range;
+      const line = work[start.line - first];
+      let from = start.column;
+      let to = end.column;
+      if (from === to && action === "backspace") from = Math.max(0, from - 1);
+      if (from === to && action === "delete")
+        to = Math.min(line.length, to + 1);
+      const inserted = action === "type" ? text : "";
+      work[start.line - first] =
+        line.slice(0, from) + inserted + line.slice(to);
+      const delta = inserted.length - (to - from);
+      for (const caret of carets)
+        if (caret && caret.line === start.line && caret.column >= to)
+          caret.column += delta;
+      carets[index] = { line: start.line, column: from + inserted.length };
+    }
+    const selectionBefore = this.selection;
+    this.replaceLines(first, work.length, work);
+    this.cursor = carets[0];
+    this.anchor = null;
+    this.extras = carets
+      .slice(1)
+      .map((caret) => ({ anchor: { ...caret }, cursor: caret }));
+    this.goal = null;
+    this.record({
+      kind: "edit",
+      start: first,
+      before: beforeLines,
+      after: work,
+      selectionBefore,
+      selectionAfter: this.selection,
+    });
+  }
+
   /**
    * Replaces the whole text in one undo step, keeping the cursor on its line, as Format Document does.
    * @param text the new contents
@@ -1236,3 +1411,90 @@ const bracketBalance = (text: string) => {
 /** @returns the display width of a line in cells */
 export const lineWidth = (text: string, tabSize: number) =>
   text.includes("\t") ? cellOf(text, text.length, tabSize) : widthOf(text);
+
+/**
+ * Line and text transforms of VS Code's command palette, applied to the selected lines (or the cursor's line).
+ * @param document the document
+ * @param transform which transform
+ */
+export const transformLines = (
+  document: Document,
+  transform:
+    | "upper"
+    | "lower"
+    | "title"
+    | "sortAscending"
+    | "sortDescending"
+    | "join"
+    | "unique"
+    | "trim",
+) => {
+  const [start, end] = document.range();
+  const first = start.line;
+  const last =
+    end.line > start.line && end.column === 0 ? end.line - 1 : end.line;
+  const lines = document.lines.slice(first, last + 1);
+  if (
+    ["upper", "lower", "title"].includes(transform) &&
+    document.hasSelection
+  ) {
+    const text = document.selectedText();
+    const changed =
+      transform === "upper"
+        ? text.toUpperCase()
+        : transform === "lower"
+          ? text.toLowerCase()
+          : text.replace(/\b\p{L}/gu, (letter) => letter.toUpperCase());
+    const selectionEnd = document.replace(start, end, changed, "edit");
+    return document.select(start, selectionEnd);
+  }
+  const collator = new Intl.Collator(undefined, { numeric: true });
+  const result =
+    transform === "upper"
+      ? lines.map((line) => line.toUpperCase())
+      : transform === "lower"
+        ? lines.map((line) => line.toLowerCase())
+        : transform === "title"
+          ? lines.map((line) =>
+              line.replace(/\b\p{L}/gu, (letter) => letter.toUpperCase()),
+            )
+          : transform === "sortAscending"
+            ? [...lines].sort(collator.compare)
+            : transform === "sortDescending"
+              ? [...lines].sort((a, b) => collator.compare(b, a))
+              : transform === "join"
+                ? [
+                    lines
+                      .map((line, index) =>
+                        index ? line.trim() : line.trimEnd(),
+                      )
+                      .join(" "),
+                  ].concat(
+                    first === last && last + 1 < document.lines.length
+                      ? []
+                      : [],
+                  )
+                : transform === "unique"
+                  ? lines.filter((line, index) => lines.indexOf(line) === index)
+                  : lines.map((line) => line.replace(/[ \t]+$/, ""));
+  if (
+    transform === "join" &&
+    first === last &&
+    last + 1 < document.lines.length
+  ) {
+    const next = document.lines[last + 1].trim();
+    const joinedEnd = document.replace(
+      { line: first, column: document.lines[first].trimEnd().length },
+      { line: last + 1, column: document.lines[last + 1].length },
+      next ? ` ${next}` : "",
+      "edit",
+    );
+    return document.setCursor(joinedEnd);
+  }
+  document.replace(
+    { line: first, column: 0 },
+    { line: last, column: document.lines[last].length },
+    result.join("\n"),
+    "edit",
+  );
+};

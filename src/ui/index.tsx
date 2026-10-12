@@ -2,12 +2,13 @@
  * The main screen, after VS Code's workbench and in gittt's manner: a one-line
  * toolbar with the key of every action and messages at its right end, the
  * explorer, the tab strip, breadcrumbs, the find widget, the code or the
- * settings page, a status bar, and Quick Open, dialogs and context menus
+ * settings page, and Quick Open, dialogs and context menus
  * drawn over it. Every part answers the mouse.
  */
-import { basename, relative, sep } from "node:path";
+import { basename, dirname, relative, sep } from "node:path";
 import { Box, Text } from "ink";
 import {
+  Fragment,
   useEffect,
   useState,
   useSyncExternalStore,
@@ -16,11 +17,11 @@ import {
 import { fieldView, type Field } from "@/field";
 import { useKeys } from "@/keys";
 import { GIT_LETTERS, isIgnored } from "@/git";
-import { languageName, languageOf } from "@/languages";
+import { languageOf } from "@/languages";
 import { Clickable } from "@/mouse/regions";
 import { fit, widthOf } from "@/text";
 import { availableUpdate, installUpdate } from "@/update";
-import type { Workbench } from "@/workbench";
+import type { Tab, Workbench } from "@/workbench";
 import { CodeView } from "./editor";
 import { stickyLines } from "@/symbols";
 import { MarkdownView } from "./markdown";
@@ -148,10 +149,8 @@ export const App = ({
       )
     : 0;
   const mainWidth = width - (showExplorer ? sideWidth + 1 : 0);
-  const bodyHeight = Math.max(1, height - 3);
+  const bodyHeight = Math.max(1, height - 2);
   const findRows = find && tab?.document ? (find.replacing ? 2 : 1) : 0;
-  const editorRows = Math.max(1, bodyHeight - 2 - findRows);
-  workbench.view = { rows: editorRows, columns: mainWidth };
   workbench.theme = theme;
 
   const tools = [
@@ -193,7 +192,7 @@ export const App = ({
   ];
 
   const applyUpdate = async () => {
-    if (workbench.tabs.some((open) => open.document?.dirty))
+    if (!workbench.backupAll())
       return workbench.say("Save your files before updating", true);
     workbench.say(`Installing ${workbench.update}…`);
     try {
@@ -295,57 +294,104 @@ export const App = ({
             </Text>
           </Clickable>
         ) : null}
-        <Box flexDirection="column" width={mainWidth}>
-          <TabStrip workbench={workbench} width={mainWidth} version={version} />
-          <Breadcrumbs workbench={workbench} width={mainWidth} />
-          {findRows ? (
-            <FindWidget workbench={workbench} width={mainWidth} />
-          ) : null}
-          {!tab ? (
-            <Welcome
-              workbench={workbench}
-              width={mainWidth}
-              height={editorRows}
-            />
-          ) : tab.kind === "preview" ? (
-            <MarkdownView
-              workbench={workbench}
-              tab={tab}
-              width={mainWidth}
-              height={editorRows}
-              version={version}
-            />
-          ) : tab.kind === "settings" ? (
-            <SettingsPage
-              workbench={workbench}
-              width={mainWidth}
-              height={editorRows}
-              version={version}
-            />
-          ) : tab.notice ? (
-            <Box
-              width={mainWidth}
-              height={editorRows}
-              paddingX={2}
-              paddingY={1}
-            >
-              <Text color={palette.textMuted} wrap="wrap">
-                {tab.notice}
-              </Text>
-            </Box>
-          ) : (
-            <CodeView
-              workbench={workbench}
-              tab={tab}
-              width={mainWidth}
-              height={editorRows}
-              focused={focus === "editor" && !find?.field}
-              version={version}
-            />
-          )}
-        </Box>
+        {workbench.groups.map((group, groupIndex) => {
+          const count = workbench.groups.length;
+          const groupWidth =
+            Math.floor((mainWidth - (count - 1)) / count) +
+            (groupIndex === count - 1 ? (mainWidth - (count - 1)) % count : 0);
+          const activeGroup = groupIndex === workbench.group;
+          const shown = group.tabs[group.active] ?? null;
+          const lines = Math.max(
+            1,
+            tabRows(
+              group.tabs,
+              group.active,
+              groupWidth,
+              theme.glyphs,
+              config.settings.wrapTabs,
+            ).length,
+          );
+          const groupFind = activeGroup ? findRows : 0;
+          const rows = Math.max(1, bodyHeight - 1 - lines - groupFind);
+          if (activeGroup) workbench.view = { rows, columns: groupWidth };
+          const left =
+            (showExplorer ? sideWidth + 1 : 0) +
+            workbench.groups
+              .slice(0, groupIndex)
+              .reduce((total) => total + groupWidth + 1, 0);
+          workbench.groupBounds[groupIndex] = {
+            left,
+            right: left + groupWidth,
+          };
+          return (
+            <Fragment key={groupIndex}>
+              {groupIndex ? (
+                <Text color={palette.border}>
+                  {`${glyphs.divider}\n`.repeat(bodyHeight).trimEnd()}
+                </Text>
+              ) : null}
+              <Box flexDirection="column" width={groupWidth}>
+                <TabStrip
+                  workbench={workbench}
+                  group={groupIndex}
+                  width={groupWidth}
+                  version={version}
+                />
+                <Breadcrumbs
+                  workbench={workbench}
+                  tab={shown}
+                  width={groupWidth}
+                />
+                {groupFind ? (
+                  <FindWidget workbench={workbench} width={groupWidth} />
+                ) : null}
+                {!shown ? (
+                  <Welcome
+                    workbench={workbench}
+                    width={groupWidth}
+                    height={rows}
+                  />
+                ) : shown.kind === "preview" ? (
+                  <MarkdownView
+                    workbench={workbench}
+                    tab={shown}
+                    width={groupWidth}
+                    height={rows}
+                    version={version}
+                  />
+                ) : shown.kind === "settings" ? (
+                  <SettingsPage
+                    workbench={workbench}
+                    width={groupWidth}
+                    height={rows}
+                    version={version}
+                  />
+                ) : shown.notice ? (
+                  <Box
+                    width={groupWidth}
+                    height={rows}
+                    paddingX={2}
+                    paddingY={1}
+                  >
+                    <Text color={palette.textMuted} wrap="wrap">
+                      {shown.notice}
+                    </Text>
+                  </Box>
+                ) : (
+                  <CodeView
+                    workbench={workbench}
+                    tab={shown}
+                    width={groupWidth}
+                    height={rows}
+                    focused={activeGroup && focus === "editor" && !find?.field}
+                    version={version}
+                  />
+                )}
+              </Box>
+            </Fragment>
+          );
+        })}
       </Box>
-      <StatusBar workbench={workbench} width={width} />
       <Overlays workbench={workbench} width={width} height={height} />
     </Box>
   );
@@ -377,9 +423,9 @@ const Explorer = ({
   const top = workbench.explorerTop;
   const activePath = workbench.tab?.path;
   const dirty = new Set(
-    workbench.tabs.flatMap((tab) =>
-      tab.document?.dirty && tab.path ? [tab.path] : [],
-    ),
+    workbench
+      .allTabs()
+      .flatMap((tab) => (tab.document?.dirty && tab.path ? [tab.path] : [])),
   );
   const lines: ReactNode[] = rows
     .slice(top, top + visible)
@@ -388,7 +434,8 @@ const Explorer = ({
       const icon = row.folder
         ? workbench.icons.folder(row.name, row.expanded)
         : workbench.icons.file(row.name, languageOf(row.path));
-      const selected = index === workbench.explorerCursor;
+      const selected =
+        index === workbench.explorerCursor || row.path === workbench.dropTarget;
       const background =
         selected && focused
           ? palette.selection
@@ -440,7 +487,22 @@ const Explorer = ({
           width={width}
           onClick={() => {
             workbench.focus = "explorer";
-            workbench.openRow(index, false);
+            workbench.openRow(index, false, false);
+          }}
+          onDoubleClick={() => {
+            workbench.focus = "explorer";
+            workbench.openRow(index, false, true);
+          }}
+          onPress={() => (move) => {
+            const target = rows[index + move.localY];
+            workbench.dropTarget =
+              move.kind === "up" ? null : (target?.path ?? null);
+            if (move.kind === "up" && move.localY !== 0 && target)
+              workbench.moveEntry(
+                row.path,
+                target.folder ? target.path : dirname(target.path),
+              );
+            workbench.changed();
           }}
           onRightClick={(event) => {
             workbench.focus = "explorer";
@@ -510,72 +572,144 @@ const Explorer = ({
 };
 
 /** The tabs, as VS Code draws them: icon, name, a dot when unsaved or × to close. */
+/**
+ * Lays tabs out in rows: one scrolled row, or as many rows as they need when `wrapTabs` is on.
+ * @returns rows of tab indexes
+ */
+export const tabRows = (
+  tabs: Tab[],
+  active: number,
+  width: number,
+  glyphs: { settings: string; close: string },
+  wrap: boolean,
+) => {
+  const widths = tabs.map((tab) =>
+    widthOf(
+      ` ${tab.kind === "settings" ? glyphs.settings : "◆"} ${tab.title} ${glyphs.close} `,
+    ),
+  );
+  if (!wrap) {
+    let start = 0;
+    const end = widths
+      .slice(0, active + 1)
+      .reduce((total, cells) => total + cells, 0);
+    while (
+      start < active &&
+      end - widths.slice(0, start).reduce((total, cells) => total + cells, 0) >
+        width
+    )
+      start++;
+    return [widths.map((_cells, index) => index).slice(start)];
+  }
+  const rows: number[][] = [[]];
+  let used = 0;
+  widths.forEach((cells, index) => {
+    if (used + cells > width && rows.at(-1)!.length) {
+      rows.push([]);
+      used = 0;
+    }
+    rows.at(-1)!.push(index);
+    used += cells;
+  });
+  return rows;
+};
+
 const TabStrip = ({
   workbench,
+  group,
   width,
 }: {
   workbench: Workbench;
+  group: number;
   width: number;
   version: number;
 }) => {
   const { colors: palette, glyphs } = useTheme();
-  const tabs = workbench.tabs.map((tab, index) => {
-    const icon =
-      tab.kind === "settings"
-        ? { glyph: glyphs.settings, color: palette.icon }
-        : workbench.icons.file(tab.title, tab.language);
-    const label = ` ${icon.glyph} ${tab.title} ${tab.document?.dirty ? glyphs.dirty : glyphs.close} `;
-    return { tab, index, icon, label, width: widthOf(label) };
-  });
-  let start = 0;
-  const activeEnd = tabs
-    .slice(0, workbench.active + 1)
-    .reduce((total, entry) => total + entry.width, 0);
-  while (
-    start < workbench.active &&
-    activeEnd -
-      tabs.slice(0, start).reduce((total, entry) => total + entry.width, 0) >
-      width
-  )
-    start++;
   return (
-    <Box height={1} width={width} overflow="hidden">
-      {tabs.slice(start).map(({ tab, index, icon }) => {
-        const active = index === workbench.active;
-        const color = active ? palette.text : palette.textMuted;
-        return (
-          <Clickable
-            key={tab.id}
-            flexShrink={0}
-            onClick={() => workbench.activate(index)}
-          >
-            <Text
-              backgroundColor={active ? palette.lineHighlight : undefined}
-              underline={false}
-            >
-              <Text color={active ? palette.accent : palette.border}>
-                {active ? "▎" : " "}
-              </Text>
-              <Text color={icon.color ?? palette.icon}>{icon.glyph}</Text>
-              <Text
-                color={tab.document?.dirty ? palette.modified : color}
-                italic={false}
+    <Box flexDirection="column" width={width}>
+      {tabRows(
+        workbench.groups[group].tabs,
+        workbench.groups[group].active,
+        width,
+        glyphs,
+        workbench.config.settings.wrapTabs,
+      ).map((row, rowIndex) => (
+        <Box key={rowIndex} height={1} width={width} overflow="hidden">
+          {row.map((index) => {
+            const tab = workbench.groups[group].tabs[index];
+            const icon =
+              tab.kind === "settings"
+                ? { glyph: glyphs.settings, color: palette.icon }
+                : workbench.icons.file(tab.title, tab.language);
+            const active = index === workbench.groups[group].active;
+            const dirty = tab.document?.dirty;
+            const color = active ? palette.text : palette.textMuted;
+            const ground = active ? palette.lineHighlight : undefined;
+            return (
+              <Clickable
+                key={tab.id}
+                flexShrink={0}
+                onClick={() => {
+                  workbench.focusGroup(group);
+                  workbench.activate(index);
+                }}
+                onPress={() => (move) => {
+                  if (
+                    move.kind !== "up" ||
+                    (move.localX === 0 && move.localY === 0)
+                  )
+                    return;
+                  const edge = workbench.groupBounds.at(-1)!.right;
+                  const target =
+                    move.x >= edge - 3
+                      ? workbench.groups.length
+                      : workbench.groupBounds.findIndex(
+                          (bounds) =>
+                            move.x >= bounds.left && move.x < bounds.right,
+                        );
+                  if (
+                    target >= 0 &&
+                    (target !== group || target === workbench.groups.length)
+                  )
+                    workbench.moveTab(group, index, target);
+                }}
               >
-                {" "}
-                {tab.title}{" "}
-              </Text>
-            </Text>
-            <Clickable onClick={() => workbench.close(index)}>
-              <Text
-                backgroundColor={active ? palette.lineHighlight : undefined}
-                color={tab.document?.dirty ? palette.modified : color}
-              >
-                {tab.document?.dirty ? glyphs.dirty : glyphs.close}{" "}
-              </Text>
-            </Clickable>
-          </Clickable>
-        );
-      })}
+                <Text backgroundColor={ground}>
+                  <Text
+                    color={
+                      dirty
+                        ? palette.modified
+                        : active
+                          ? palette.accent
+                          : palette.border
+                    }
+                  >
+                    {active || dirty ? "▎" : " "}
+                  </Text>
+                  <Text color={icon.color ?? palette.icon}>{icon.glyph}</Text>
+                  <Text color={dirty ? palette.modified : color}>
+                    {" "}
+                    {tab.title}{" "}
+                  </Text>
+                </Text>
+                <Clickable
+                  onClick={() => {
+                    workbench.focusGroup(group);
+                    workbench.close(index);
+                  }}
+                >
+                  <Text
+                    backgroundColor={ground}
+                    color={dirty ? palette.modified : color}
+                  >
+                    {dirty ? glyphs.dirty : glyphs.close}{" "}
+                  </Text>
+                </Clickable>
+              </Clickable>
+            );
+          })}
+        </Box>
+      ))}
     </Box>
   );
 };
@@ -583,13 +717,14 @@ const TabStrip = ({
 /** The path of the active file, folder by folder. */
 const Breadcrumbs = ({
   workbench,
+  tab,
   width,
 }: {
   workbench: Workbench;
+  tab: Tab | null;
   width: number;
 }) => {
   const { colors: palette } = useTheme();
-  const tab = workbench.tab;
   const parts =
     tab?.kind === "settings"
       ? ["Settings"]
@@ -773,62 +908,6 @@ const Welcome = ({
               )}
             </Text>
           </Text>
-        </Clickable>
-      ))}
-    </Box>
-  );
-};
-
-/** The status bar: cursor, indentation, encoding, line endings, language. */
-const StatusBar = ({
-  workbench,
-  width,
-}: {
-  workbench: Workbench;
-  width: number;
-}) => {
-  const { colors: palette } = useTheme();
-  const tab = workbench.tab;
-  const document = tab?.document;
-  const items: [string, (() => void) | undefined][] = document
-    ? [
-        [
-          document.hasSelection
-            ? `Ln ${document.cursor.line + 1}, Col ${document.cursor.column + 1} (${document.selectedText().length} selected)`
-            : `Ln ${document.cursor.line + 1}, Col ${document.cursor.column + 1}`,
-          () => workbench.openPalette(":"),
-        ],
-        [
-          document.indentation.useTabs
-            ? `Tab Size: ${document.indentation.size}`
-            : `Spaces: ${document.indentation.size}`,
-          () => workbench.pickIndentation(),
-        ],
-        ["UTF-8", undefined],
-        [document.eol === "\n" ? "LF" : "CRLF", undefined],
-        [languageName(tab!.language), () => workbench.pickLanguage()],
-        ...(tab?.diagnostics?.length
-          ? ([
-              [
-                `✖ ${tab.diagnostics.filter((problem) => problem.severity === "error").length} ⚠ ${tab.diagnostics.filter((problem) => problem.severity === "warning").length}`,
-                () => {
-                  const next =
-                    tab.diagnostics!.find(
-                      (problem) => problem.line > document.cursor.line,
-                    ) ?? tab.diagnostics![0];
-                  document.setCursor({ line: next.line, column: next.start });
-                  workbench.afterEdit();
-                },
-              ],
-            ] as [string, (() => void) | undefined][])
-          : []),
-      ]
-    : [];
-  return (
-    <Box height={1} width={width} justifyContent="flex-end" overflow="hidden">
-      {items.map(([label, run]) => (
-        <Clickable key={label} flexShrink={0} onClick={run}>
-          <Text color={palette.textMuted}>{label} </Text>
         </Clickable>
       ))}
     </Box>

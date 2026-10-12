@@ -75,6 +75,87 @@ const contrastOn = (color: string) => {
     : "#ffffff";
 };
 
+/**
+ * Breaks a line for word wrap at spaces where it can, as VS Code's `wordWrap`.
+ * @returns the cell ranges of the rows the line takes; an empty line takes one
+ */
+export const wrapSegments = (
+  text: string,
+  width: number,
+  tabSize: number,
+): [number, number][] => {
+  const segments: [number, number][] = [];
+  let start = 0;
+  let lastSpace = -1;
+  let cell = 0;
+  for (const piece of placeText(text, tabSize)) {
+    if (piece.start + piece.width - start > width && piece.start > start) {
+      const end = lastSpace > start ? lastSpace : piece.start;
+      segments.push([start, end]);
+      start = end;
+      lastSpace = -1;
+    }
+    if (piece.source === " ") lastSpace = piece.start + 1;
+    cell = piece.start + piece.width;
+  }
+  segments.push([start, Math.max(start, cell)]);
+  return segments;
+};
+
+/**
+ * What VS Code highlights elsewhere in the file: the selected text when it sits on one line, else the word at the cursor.
+ * @returns the text and whether it must match as a whole word, or `null`
+ */
+const occurrenceOf = (document: Document) => {
+  if (document.hasSelection) {
+    const text = document.selectedText();
+    return text.trim() && !text.includes("\n") ? { text, whole: false } : null;
+  }
+  const word = document.wordAt(document.cursor);
+  return word
+    ? {
+        text: document.lines[word[0].line].slice(
+          word[0].column,
+          word[1].column,
+        ),
+        whole: true,
+      }
+    : null;
+};
+
+/** @returns the occurrences on a line, the cursor's own left out */
+const occurrencesIn = (
+  text: string,
+  occurrence: { text: string; whole: boolean },
+  line: number,
+  document: Document,
+) => {
+  const ranges: { start: number; end: number }[] = [];
+  const [from, to] = document.range();
+  for (
+    let start = text.indexOf(occurrence.text);
+    start >= 0;
+    start = text.indexOf(occurrence.text, start + 1)
+  ) {
+    const end = start + occurrence.text.length;
+    if (
+      occurrence.whole &&
+      (/[\p{L}\p{N}_$]/u.test(text[start - 1] ?? "") ||
+        /[\p{L}\p{N}_$]/u.test(text[end] ?? ""))
+    )
+      continue;
+    if (
+      line === from.line &&
+      start <= Math.max(from.column, to.column) &&
+      end >= Math.min(from.column, to.column) &&
+      line === to.line
+    )
+      continue;
+    ranges.push({ start, end });
+  }
+  return ranges;
+};
+
 /** Cells the minimap takes, and the narrowest editor that shows one. */
 const MINIMAP_CELLS = 10;
 const MINIMAP_MIN_EDITOR = 60;
@@ -194,11 +275,16 @@ const codeRow = (
     left: number;
     tabSize: number;
     defaultColor: string;
-    selection: [Position, Position] | null;
+    selections: [Position, Position][];
     matches: { start: number; end: number; current: boolean }[];
     brackets: number[];
-    cursor: number | null;
+    /** Columns of the cursors on the line. */
+    cursors: number[];
     lineBackground?: string;
+    /** Other occurrences of the selected text or the word at the cursor, drawn on the inactive selection colour. */
+    occurrences: { start: number; end: number }[];
+    /** Which whitespace is drawn: `none`, `selection` or `all`. */
+    whitespace: string;
     /** Ranges ESLint reported on the line, drawn underlined. */
     underlines: { start: number; end: number }[];
     /** Colours of brackets by column, by nesting depth. */
@@ -212,6 +298,7 @@ const codeRow = (
     after?: { text: string; color: string };
     colors: {
       selection: string;
+      selectionInactive: string;
       findMatch: string;
       findCurrent: string;
       bracket: string;
@@ -220,8 +307,16 @@ const codeRow = (
     };
   },
 ): Piece[] => {
-  const { width, left, tabSize, selection, matches, brackets, cursor, colors } =
-    options;
+  const {
+    width,
+    left,
+    tabSize,
+    selections,
+    matches,
+    brackets,
+    cursors,
+    colors,
+  } = options;
   const pieces: Piece[] = [];
   const push = (piece: Piece) => {
     const last = pieces.at(-1);
@@ -237,9 +332,11 @@ const codeRow = (
     else pieces.push(piece);
   };
   const selected = (column: number) =>
-    selection !== null &&
-    compare(selection[0], { line, column }) <= 0 &&
-    compare({ line, column }, selection[1]) < 0;
+    selections.some(
+      (selection) =>
+        compare(selection[0], { line, column }) <= 0 &&
+        compare({ line, column }, selection[1]) < 0,
+    );
   let segmentIndex = 0;
   let segmentEnd = segments?.[0]?.text.length ?? 0;
   let used = 0;
@@ -257,7 +354,7 @@ const codeRow = (
       const match = matches.find(
         (entry) => column >= entry.start && column < entry.end,
       );
-      const atCursor = cursor === column;
+      const atCursor = cursors.includes(column);
       const swatch = options.swatches.find(
         (entry) => column >= entry.start && column < entry.end,
       );
@@ -269,16 +366,21 @@ const codeRow = (
             ? match.current
               ? colors.findCurrent
               : colors.findMatch
-            : brackets.includes(column)
-              ? colors.bracket
-              : (swatch?.color ?? options.lineBackground);
+            : options.occurrences.some(
+                  (range) => column >= range.start && column < range.end,
+                )
+              ? colors.selectionInactive
+              : brackets.includes(column)
+                ? colors.bracket
+                : (swatch?.color ?? options.lineBackground);
       const guide =
         placed.source === " " &&
         options.guides.includes(placed.start) &&
         !atCursor;
       const whitespace =
         !atCursor &&
-        selected(column) &&
+        options.whitespace !== "none" &&
+        (options.whitespace === "all" || selected(column)) &&
         (placed.source === " " || placed.source === "\t");
       const visible = guide
         ? options.guide.glyph
@@ -321,18 +423,14 @@ const codeRow = (
       0,
     );
     if (endCell >= left) {
-      if (cursor === lineEnd) {
+      if (cursors.includes(lineEnd)) {
         push({
           text: " ",
           color: colors.cursorText,
           background: colors.cursor,
         });
         used++;
-      } else if (
-        selection &&
-        compare(selection[0], { line, column: lineEnd }) <= 0 &&
-        compare({ line, column: lineEnd }, selection[1]) < 0
-      ) {
+      } else if (selected(lineEnd)) {
         push({ text: " ", background: colors.selection });
         used++;
       }
@@ -414,6 +512,9 @@ export const CodeView = memo(
         )
       : null;
     const selection = document.hasSelection ? document.range() : null;
+    const ranges = document
+      .allRanges()
+      .filter(([start, end]) => compare(start, end) !== 0);
     const find = workbench.find;
     const bracket =
       focused || !selection ? document.matchingBracket(document.cursor) : null;
@@ -432,12 +533,66 @@ export const CodeView = memo(
       0,
       visible.findIndex((line) => line >= tab.scrollTop),
     );
+    const occurrence = focused ? occurrenceOf(document) : null;
     const rows: ReactNode[] = [];
+    const wrap = settings.wordWrap || tab.language === null;
+    const entries: {
+      line: number;
+      left: number;
+      width: number;
+      first: boolean;
+      pinned: boolean;
+    }[] = sticky.map((line) => ({
+      line,
+      left: wrap ? 0 : tab.scrollLeft,
+      width: codeWidth,
+      first: true,
+      pinned: true,
+    }));
+    for (let index = first; entries.length < height; index++) {
+      const line = visible[index];
+      if (line === undefined) {
+        entries.push({
+          line: Number.MAX_SAFE_INTEGER,
+          left: 0,
+          width: codeWidth,
+          first: true,
+          pinned: false,
+        });
+        continue;
+      }
+      if (!wrap) {
+        entries.push({
+          line,
+          left: tab.scrollLeft,
+          width: codeWidth,
+          first: true,
+          pinned: false,
+        });
+        continue;
+      }
+      const segments = wrapSegments(
+        document.lines[line],
+        codeWidth,
+        document.indentation.size,
+      );
+      segments.forEach(([start, end], segment) =>
+        entries.push({
+          line,
+          left: start,
+          width: segment === segments.length - 1 ? codeWidth : end - start,
+          first: segment === 0,
+          pinned: false,
+        }),
+      );
+    }
+    tab.drawnRows = entries
+      .slice(0, height)
+      .map((entry) => ({ line: entry.line, left: entry.left }));
     for (let row = 0; row < height; row++) {
-      const pinned = row < sticky.length;
-      const line = pinned
-        ? sticky[row]
-        : (visible[first + row] ?? Number.MAX_SAFE_INTEGER);
+      const entry = entries[row];
+      const pinned = entry.pinned;
+      const line = entry.line;
       if (line >= document.lines.length) {
         rows.push(
           <Text key={row}>
@@ -474,12 +629,15 @@ export const CodeView = memo(
       const folded = tab.folds?.has(line) ?? false;
       const foldMark = folded
         ? "▸"
-        : current && foldEnd(document.lines, line) !== null
+        : (current || settings.showFoldingControls === "always") &&
+            foldEnd(document.lines, line) !== null
           ? "▾"
           : " ";
-      const gutterText = settings.lineNumbers
-        ? `${foldMark}${number.padStart(gutter - workbench.theme.spacing.gutterPadding - 1)}${" ".repeat(workbench.theme.spacing.gutterPadding)}`
-        : " ";
+      const gutterText = !entry.first
+        ? " ".repeat(gutter)
+        : settings.lineNumbers
+          ? `${foldMark}${number.padStart(gutter - workbench.theme.spacing.gutterPadding - 1)}${" ".repeat(workbench.theme.spacing.gutterPadding)}`
+          : " ";
       const matches = find
         ? find.matches.flatMap((match, index) =>
             match.line === line
@@ -498,18 +656,22 @@ export const CodeView = memo(
         tab.highlight?.line(line) ?? null,
         line,
         {
-          width: codeWidth,
-          left: tab.scrollLeft,
+          width: entry.width,
+          left: entry.left,
           tabSize: document.indentation.size,
           defaultColor: palette.text,
-          selection,
+          selections: ranges,
           matches,
           brackets: bracket
             ? [bracket[0], bracket[1]]
                 .filter((position) => position.line === line)
                 .map((position) => position.column)
             : [],
-          cursor: focused && current ? document.cursor.column : null,
+          cursors: focused
+            ? [document.cursor, ...document.extras.map((extra) => extra.cursor)]
+                .filter((position) => position.line === line && !pinned)
+                .map((position) => position.column)
+            : [],
           lineBackground,
           bracketColors: settings.bracketPairColorization
             ? bracketColorsOf(document, line, palette.brackets)
@@ -525,6 +687,10 @@ export const CodeView = memo(
           guide: { glyph: glyphs.guide, color: palette.guide },
           swatches: settings.colorDecorators
             ? colorSwatches(document.lines[line])
+            : [],
+          whitespace: settings.renderWhitespace,
+          occurrences: occurrence
+            ? occurrencesIn(document.lines[line], occurrence, line, document)
             : [],
           underlines: problems.map((problem) => ({
             start: problem.line === line ? problem.start : 0,
@@ -572,6 +738,11 @@ export const CodeView = memo(
             {change ? (change === "deleted" ? "▔" : "▎") : gutterText.slice(-1)}
           </Text>
           <PieceText pieces={pieces} />
+          {entry.width < codeWidth ? (
+            <Text backgroundColor={lineBackground}>
+              {" ".repeat(codeWidth - entry.width)}
+            </Text>
+          ) : null}
           {map ? (
             <Text
               color={palette.textMuted}
@@ -625,6 +796,11 @@ export const CodeView = memo(
             scrollTo(event.localY);
             return (move) => scrollTo(move.localY);
           }
+          const group = workbench.groups.findIndex((entry) =>
+            entry.tabs.includes(tab),
+          );
+          if (group >= 0 && group !== workbench.group)
+            workbench.focusGroup(group);
           const position = pointAt(event);
           if (!position) return;
           workbench.focus = "editor";
@@ -640,6 +816,29 @@ export const CodeView = memo(
                     column: document.lines[position.line].length,
                   },
             );
+            workbench.changed();
+            return;
+          }
+          if (event.clicks === 3) {
+            document.select(
+              { line: position.line, column: 0 },
+              position.line + 1 < document.lines.length
+                ? { line: position.line + 1, column: 0 }
+                : {
+                    line: position.line,
+                    column: document.lines[position.line].length,
+                  },
+            );
+            workbench.changed();
+            return;
+          }
+          if (event.alt) {
+            document.extras.push({
+              anchor: document.anchor ?? document.cursor,
+              cursor: document.cursor,
+            });
+            document.cursor = position;
+            document.anchor = null;
             workbench.changed();
             return;
           }

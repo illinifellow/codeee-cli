@@ -207,8 +207,7 @@ process.on("exit", restoreTerminal);
 let restarting = false;
 /** The open editor, so a rebuild never restarts over unsaved files. */
 let activeWorkbench: Workbench | null = null;
-const dirty = () =>
-  Boolean(activeWorkbench?.tabs.some((tab) => tab.document?.dirty));
+const dirty = () => (activeWorkbench ? !activeWorkbench.backupAll() : false);
 /** Leaves the screen so the closing handler can start the new codeee in this process. */
 const restart = () => {
   if (restarting) return;
@@ -265,7 +264,15 @@ void instance.waitUntilExit().finally(() => {
     process.execve(
       process.execPath,
       [process.execPath, ...process.execArgv, ...process.argv.slice(1, 2)],
-      { ...process.env, ...(folder ? { CODEEE_FOLDER: folder } : {}) },
+      {
+        ...process.env,
+        ...(process.env.CODEEE_NEXT_FOLDER || folder
+          ? {
+              CODEEE_FOLDER: process.env.CODEEE_NEXT_FOLDER || folder,
+              CODEEE_NEXT_FOLDER: "",
+            }
+          : {}),
+      },
     );
   } catch (error) {
     process.stdout.write(

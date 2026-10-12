@@ -97,6 +97,8 @@ export class FileTree {
   constructor(
     readonly root: string,
     public exclude: string[],
+    /** Folders holding a single folder show as one row, `src/ui`, as VS Code's `explorer.compactFolders`. */
+    public compact = true,
   ) {}
 
   /** @returns the folder's entries, read on first use */
@@ -137,9 +139,15 @@ export class FileTree {
     const rows: Row[] = [];
     const walk = (path: string, depth: number) => {
       for (const entry of this.entries(path)) {
-        const expanded = entry.folder && this.expanded.has(entry.path);
-        rows.push({ ...entry, depth, expanded });
-        if (expanded) walk(entry.path, depth + 1);
+        let shown = entry;
+        while (this.compact && shown.folder) {
+          const children = this.entries(shown.path);
+          if (children.length !== 1 || !children[0].folder) break;
+          shown = { ...children[0], name: `${shown.name}/${children[0].name}` };
+        }
+        const expanded = shown.folder && this.expanded.has(shown.path);
+        rows.push({ ...shown, depth, expanded });
+        if (expanded) walk(shown.path, depth + 1);
       }
     };
     walk(this.root, 0);

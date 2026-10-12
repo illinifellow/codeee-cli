@@ -24,7 +24,11 @@ export interface MouseEvent {
   button: "left" | "middle" | "right" | "none";
   /** A second press on the same row, a few cells away at most, within the configured double-click time. */
   double: boolean;
+  /** Presses in a row on the same spot: 1, 2 for a double click, 3 for a triple click. */
+  clicks: number;
   shift: boolean;
+  /** Option (Alt) was held; terminals report it as Meta. */
+  alt: boolean;
 }
 
 /** How presses count as a double click. */
@@ -71,16 +75,18 @@ const toEvent = (
   column: number,
   row: number,
   final: string,
-): Omit<MouseEvent, "double"> => {
+): Omit<MouseEvent, "double" | "clicks"> => {
   const buttonCode = code & 3;
   const wheel = (code & 64) !== 0;
   const shift = (code & 4) !== 0;
+  const alt = (code & 8) !== 0;
   const wheelKinds = shift
     ? (["wheelLeft", "wheelRight", "wheelLeft", "wheelRight"] as const)
     : (["wheelUp", "wheelDown", "wheelLeft", "wheelRight"] as const);
   return {
     x: column - 1,
     y: row - 1,
+    alt,
     kind: wheel
       ? wheelKinds[buttonCode]
       : (code & 32) !== 0
@@ -110,7 +116,7 @@ export const startMouse = (timing: ClickTiming, inputSplitMs: number) => {
     return keyboard;
   };
   clicks = timing;
-  let lastPress = { x: -1, y: -1, time: 0 };
+  let lastPress = { x: -1, y: -1, time: 0, count: 0 };
   const decoder = new StringDecoder("utf8");
   let pending = "";
   let flushTimer: ReturnType<typeof setTimeout> | null = null;
@@ -119,18 +125,21 @@ export const startMouse = (timing: ClickTiming, inputSplitMs: number) => {
       REPORT,
       (_whole, code: string, column: string, row: string, final: string) => {
         const event = toEvent(Number(code), Number(column), Number(row), final);
-        let double = false;
+        let count = 1;
         if (event.kind === "down" && event.button === "left") {
           const now = Date.now();
-          double =
+          const near =
             now - lastPress.time < clicks.doubleClickMs &&
             lastPress.y === event.y &&
             Math.abs(lastPress.x - event.x) <= clicks.doubleClickCells;
-          lastPress = double
-            ? { x: -1, y: -1, time: 0 }
-            : { x: event.x, y: event.y, time: now };
+          count = near ? (lastPress.count % 3) + 1 : 1;
+          lastPress = { x: event.x, y: event.y, time: now, count };
         }
-        mouse.emit("mouse", { ...event, double } satisfies MouseEvent);
+        mouse.emit("mouse", {
+          ...event,
+          double: count === 2,
+          clicks: count,
+        } satisfies MouseEvent);
         return "";
       },
     );

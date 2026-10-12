@@ -12,10 +12,17 @@
     "bracketPairColorization": true,
     "guides": true,
     "minimap": true,
+    "wordWrap": false,
+    "renderWhitespace": "all",
+    "showFoldingControls": "always",
+    "wrapTabs": true,
+    "confirmDelete": false,
+    "compactFolders": true,
     "stickyScroll": true,
     "eslint": true,
     "snippets": true,
     "autoSave": "off",
+    "hotExit": "onExit",
     "autoIndent": true,
     "autoClosingBrackets": true,
     "trimTrailingWhitespace": false,
@@ -85,7 +92,7 @@
     "selectAll": "ctrl+a",
     "selectLine": "ctrl+l",
     "deleteLine": "ctrl+k",
-    "duplicateLine": "ctrl+d",
+    "duplicateLine": "alt+shift+down",
     "comment": "ctrl+/",
     "moveLineUp": "alt+up",
     "moveLineDown": "alt+down",
@@ -101,7 +108,12 @@
     "previousProblem": "shift+f8",
     "markdownPreview": "alt+v",
     "reopenClosed": "alt+t",
-    "toggleFold": "alt+k"
+    "toggleFold": "alt+k",
+    "addNextOccurrence": "ctrl+d",
+    "wordWrap": "alt+z",
+    "foldAll": "alt+-",
+    "unfoldAll": "alt+=",
+    "duplicateLineUp": "alt+shift+up"
   },
   "themes": {
     "golden-brown": {
@@ -158,10 +170,12 @@
         "cursor": "\u258f",
         "dropdown": "\u25be",
         "settings": "\u2699",
-        "guide": "\u2502"
+        "guide": "\u2502",
+        "space": "\u00b7",
+        "tab": "\u2192"
       },
       "spacing": {
-        "indent": 2,
+        "indent": 3,
         "toolbarGap": 3,
         "dialogWidth": 64,
         "menuWidth": 36,
@@ -230,10 +244,12 @@
         "cursor": "\u258f",
         "dropdown": "\u25be",
         "settings": "\u2699",
-        "guide": "\u2502"
+        "guide": "\u2502",
+        "space": "\u00b7",
+        "tab": "\u2192"
       },
       "spacing": {
-        "indent": 2,
+        "indent": 3,
         "toolbarGap": 3,
         "dialogWidth": 64,
         "menuWidth": 36,

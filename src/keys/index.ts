@@ -297,5 +297,13 @@ const OPTION_LETTERS: Record<string, string> = Object.fromEntries([
  */
 export const optionChord = (event: KeyEvent) =>
   event.name === "text" && event.text && [...event.text].length === 1
-    ? (OPTION_LETTERS[event.text] ?? null)
+    ? (OPTION_LETTERS[event.text] ?? OPTION_SYMBOLS[event.text] ?? null)
     : null;
+
+/** Option with symbols on the US layout. */
+const OPTION_SYMBOLS: Record<string, string> = {
+  "–": "alt+-",
+  "≠": "alt+=",
+  "“": "alt+[",
+  "‘": "alt+]",
+};

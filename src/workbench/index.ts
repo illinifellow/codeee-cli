@@ -13,7 +13,7 @@ import {
   relative,
   resolve,
 } from "node:path";
-import type { FSWatcher } from "node:fs";
+import { existsSync, renameSync, statSync, type FSWatcher } from "node:fs";
 import {
   loadConfig,
   loadDefaults,
@@ -28,6 +28,7 @@ import {
   columnAt,
   Document,
   indentOf,
+  transformLines,
   type FindOptions,
   type Match,
   type Position,
@@ -36,6 +37,7 @@ import { copyToClipboard, readClipboard } from "@/clipboard";
 import { editField, field, type Field } from "@/field";
 import {
   createFile,
+  expandPath,
   createFolder,
   deleteEntry,
   FileTree,
@@ -52,6 +54,7 @@ import {
 import { DocumentHighlight, SyntaxHighlighter } from "@/highlight";
 import { expandEmmet } from "@/emmet";
 import { foldEnd, foldsHiding, visibleLines } from "@/folding";
+import { readBackups, removeBackup, writeBackup } from "@/backup";
 import { formatText } from "@/format";
 import { lintText, type Diagnostic } from "@/lint";
 import { expandSnippet, findSnippet, loadSnippets } from "@/snippets";
@@ -103,8 +106,18 @@ export interface Tab {
   scrollLeft: number;
   /** Why the file is not shown as text (binary, too large, unreadable). */
   notice: string | null;
+  /** Opened by a single click in the explorer: the next such click replaces it; an edit or a double click keeps it. */
+  preview?: boolean;
+  /** The tab stops of the snippet being filled in; Tab goes to the next one, as in VS Code. */
+  snippet?: {
+    stops: { line: number; column: number; length: number }[];
+    index: number;
+    lengths: Map<number, number>;
+  };
   /** A format before saving is running. */
   formatting?: boolean;
+  /** The line and first cell each editor row showed at the last draw, for clicks under word wrap. */
+  drawnRows?: { line: number; left: number }[];
   /** Lines whose blocks are folded. */
   folds?: Set<number>;
   /** How lines differ from the last commit, for the gutter. */
@@ -114,6 +127,7 @@ export interface Tab {
   /** Pending lint and auto save. */
   lintTimer?: ReturnType<typeof setTimeout>;
   saveTimer?: ReturnType<typeof setTimeout>;
+  backupTimer?: ReturnType<typeof setTimeout>;
   /** Modification time when last read or written, to tell changes made elsewhere. */
   modified: number;
 }
@@ -242,6 +256,9 @@ let nextTabId = 1;
 /** How often git's status is read again, for commits and staging made elsewhere (the watcher skips `.git`). */
 const GIT_POLL_MS = 3000;
 
+/** How long after the last edit a file's unsaved text is backed up. */
+const BACKUP_DELAY_MS = 1000;
+
 /** Letters typed in the explorer within this many milliseconds form one name to jump to. */
 const TYPE_TO_FIND_MS = 800;
 
@@ -261,8 +278,120 @@ const relativeTo = (root: string, path: string) =>
 export class Workbench {
   config: Config;
   tree: FileTree;
-  tabs: Tab[] = [];
-  active = -1;
+  /** Editor groups side by side, each with its tabs and its active tab, as VS Code's split editors. */
+  groups: { tabs: Tab[]; active: number }[] = [{ tabs: [], active: -1 }];
+  /** The group with the keyboard. */
+  group = 0;
+  /** The screen cells each group spans, set by the screen, for dropping dragged tabs. */
+  groupBounds: { left: number; right: number }[] = [];
+
+  /** @returns the tabs of the active group */
+  get tabs() {
+    return this.groups[this.group].tabs;
+  }
+
+  set tabs(tabs: Tab[]) {
+    this.groups[this.group].tabs = tabs;
+  }
+
+  /** @returns the index of the active group's shown tab */
+  get active() {
+    return this.groups[this.group].active;
+  }
+
+  set active(index: number) {
+    this.groups[this.group].active = index;
+  }
+
+  /** @returns the tabs of every group */
+  allTabs() {
+    return this.groups.flatMap((group) => group.tabs);
+  }
+
+  /**
+   * Gives the keyboard to an editor group.
+   * @param group the group's index
+   */
+  focusGroup(group: number) {
+    if (!this.groups[group] || group === this.group) return;
+    this.group = group;
+    this.focus = this.tab?.kind === "settings" ? "settings" : "editor";
+    this.updateMatches();
+    this.changed();
+  }
+
+  /**
+   * Opens the active tab in a new group to the right, as View: Split Editor; both show the same document.
+   */
+  splitEditor() {
+    const tab = this.tab;
+    if (!tab) return;
+    const copy: Tab = {
+      ...tab,
+      id: nextTabId++,
+      preview: false,
+      folds: new Set(tab.folds ?? []),
+    };
+    this.groups.splice(this.group + 1, 0, { tabs: [copy], active: 0 });
+    this.group++;
+    this.focus = copy.kind === "settings" ? "settings" : "editor";
+    this.changed();
+  }
+
+  /**
+   * Moves a tab to another group, or to a new group at the right edge, as dragging a tab does.
+   * @param from the tab's group
+   * @param index the tab
+   * @param to the target group; the number of groups makes a new one
+   */
+  moveTab(from: number, index: number, to: number) {
+    const source = this.groups[from];
+    const [tab] = source?.tabs.splice(index, 1) ?? [];
+    if (!tab) return;
+    if (to >= this.groups.length) this.groups.push({ tabs: [], active: -1 });
+    const target = this.groups[to];
+    const existing = target.tabs.findIndex(
+      (open) => open.path && open.path === tab.path,
+    );
+    if (existing >= 0) target.active = existing;
+    else {
+      target.tabs.splice(target.active + 1, 0, tab);
+      target.active = target.tabs.indexOf(tab);
+    }
+    source.active = Math.min(source.active, source.tabs.length - 1);
+    this.group = this.groups.indexOf(target);
+    this.dropEmptyGroups();
+    this.changed();
+  }
+
+  /** Removes groups left without tabs, keeping at least one. */
+  private dropEmptyGroups() {
+    const current = this.groups[this.group];
+    this.groups = this.groups.filter(
+      (group) => group.tabs.length || this.groups.length === 1,
+    );
+    if (!this.groups.length) this.groups = [{ tabs: [], active: -1 }];
+    this.group = Math.max(0, this.groups.indexOf(current));
+    if (this.group < 0 || !this.groups[this.group])
+      this.group = this.groups.length - 1;
+  }
+
+  /**
+   * Closes, without asking, every tab in every group whose file lies at or under a path, as deleting it does.
+   * @param path the deleted path
+   */
+  private closeUnder(path: string) {
+    const current = this.group;
+    for (let group = this.groups.length - 1; group >= 0; group--) {
+      this.group = group;
+      for (let index = this.tabs.length - 1; index >= 0; index--) {
+        const tabPath = this.tabs[index].path;
+        if (tabPath && (tabPath === path || tabPath.startsWith(`${path}/`)))
+          this.discard(index);
+      }
+    }
+    this.group = Math.min(current, this.groups.length - 1);
+  }
   focus: Focus = "editor";
   explorerCursor = 0;
   explorerTop = 0;
@@ -346,7 +475,11 @@ export class Workbench {
     private onConfig: (config: Config) => void,
   ) {
     this.config = loadConfig();
-    this.tree = new FileTree(root, this.config.settings.exclude);
+    this.tree = new FileTree(
+      root,
+      this.config.settings.exclude,
+      this.config.settings.compactFolders,
+    );
     this.refreshGit();
     this.gitTimer = setInterval(() => this.refreshGit(), GIT_POLL_MS);
     this.watcher = watchFolder(
@@ -362,6 +495,16 @@ export class Workbench {
       ? this.tabs.findIndex((tab) => tab.path === session.active)
       : -1;
     if (active >= 0) this.active = active;
+    for (const backup of readBackups()) {
+      if (!backup.path.startsWith(`${root}/`) || !modifiedTime(backup.path))
+        continue;
+      const before = this.active;
+      this.open(backup.path, { quiet: true });
+      const restored = this.tab?.document;
+      if (restored && restored.text() !== backup.text)
+        restored.setText(backup.text);
+      this.active = before >= 0 ? before : this.active;
+    }
     if (!this.tabs.length) this.focus = "explorer";
   }
 
@@ -433,7 +576,12 @@ export class Workbench {
    */
   open(
     path: string,
-    options: { line?: number; column?: number; quiet?: boolean } = {},
+    options: {
+      line?: number;
+      column?: number;
+      quiet?: boolean;
+      preview?: boolean;
+    } = {},
   ) {
     const existing = this.tabs.findIndex((tab) => tab.path === path);
     if (existing >= 0) {
@@ -457,12 +605,23 @@ export class Workbench {
       const remembered = this.config.state.positions[path];
       if (tab.document && remembered)
         tab.document.setCursor({ line: remembered[0], column: remembered[1] });
-      const after = this.tabs.length ? this.active + 1 : 0;
-      this.tabs.splice(after, 0, tab);
-      this.active = after;
+      const reuse = options.preview
+        ? this.tabs.findIndex((open) => open.preview && !open.document?.dirty)
+        : -1;
+      tab.preview = options.preview;
+      if (reuse >= 0) {
+        this.tabs[reuse].highlight?.dispose();
+        this.tabs[reuse] = tab;
+        this.active = reuse;
+      } else {
+        const after = this.tabs.length ? this.active + 1 : 0;
+        this.tabs.splice(after, 0, tab);
+        this.active = after;
+      }
       this.saveSession();
     }
     const tab = this.tabs[this.active];
+    if (existing >= 0 && !options.preview) tab.preview = false;
     if (tab.document && options.line !== undefined)
       tab.document.setCursor({
         line: options.line,
@@ -517,6 +676,7 @@ export class Workbench {
       );
     if (document) {
       document.onChange((start, removed, inserted) => {
+        tab.preview = false;
         if (tab.folds?.size)
           tab.folds = new Set(
             [...tab.folds].flatMap((line) =>
@@ -529,6 +689,7 @@ export class Workbench {
           );
         this.lint(tab);
         this.scheduleAutoSave(tab);
+        this.scheduleBackup(tab);
       });
       this.lint(tab);
     }
@@ -661,11 +822,21 @@ export class Workbench {
 
   private discard(index: number) {
     const [tab] = this.tabs.splice(index, 1);
+    if (
+      tab.path &&
+      tab.document?.dirty &&
+      !this.allTabs().some((other) => other.document === tab.document)
+    )
+      removeBackup(tab.path);
     if (tab.path) this.closed.push(tab.path);
     tab.highlight?.dispose();
     this.remember(tab);
     if (this.active >= index) this.active = Math.max(0, this.active - 1);
-    if (!this.tabs.length) {
+    if (!this.tabs.length && this.groups.length > 1) {
+      this.groups.splice(this.group, 1);
+      this.group = Math.min(this.group, this.groups.length - 1);
+      this.focus = this.tab?.kind === "settings" ? "settings" : "editor";
+    } else if (!this.tabs.length) {
       this.active = -1;
       this.focus = "explorer";
     } else
@@ -694,10 +865,14 @@ export class Workbench {
 
   /** Stores the open tabs and cursor positions of this folder. */
   saveSession() {
-    for (const tab of this.tabs) this.remember(tab);
+    for (const tab of this.allTabs()) this.remember(tab);
     const state = this.config.state;
     state.sessions[this.root] = {
-      open: this.tabs.flatMap((tab) => (tab.path ? [tab.path] : [])),
+      open: [
+        ...new Set(
+          this.allTabs().flatMap((tab) => (tab.path ? [tab.path] : [])),
+        ),
+      ],
       active: this.tab?.path ?? null,
     };
     try {
@@ -765,6 +940,7 @@ export class Workbench {
     try {
       tab.modified = writeText(tab.path, tab.document.text());
       tab.document.markSaved();
+      removeBackup(tab.path);
       this.refreshGit();
       this.tree.refresh();
       this.files = null;
@@ -803,7 +979,15 @@ export class Workbench {
 
   /** Leaves codeee, asking about unsaved files first. */
   quit() {
-    const dirty = this.tabs.filter((tab) => tab.document?.dirty);
+    const dirty = [
+      ...new Set(
+        this.allTabs()
+          .filter((tab) => tab.document?.dirty)
+          .map((tab) => tab.document),
+      ),
+    ].map(
+      (document) => this.allTabs().find((tab) => tab.document === document)!,
+    );
     const leave = () => {
       this.saveSession();
       this.watcher?.close();
@@ -811,6 +995,18 @@ export class Workbench {
       this.onQuit();
     };
     if (!dirty.length) return leave();
+    if (
+      this.config.settings.hotExit === "onExit" &&
+      dirty.every((tab) => tab.path)
+    ) {
+      for (const tab of dirty)
+        writeBackup({
+          path: tab.path!,
+          text: tab.document!.text(),
+          modified: tab.modified,
+        });
+      return leave();
+    }
     this.ask({
       title:
         dirty.length === 1
@@ -826,9 +1022,15 @@ export class Workbench {
           primary: true,
           run: () => {
             const saveNext = () => {
-              const index = this.tabs.findIndex((tab) => tab.document?.dirty);
-              if (index < 0) return leave();
-              this.save(index, saveNext);
+              const group = this.groups.findIndex((entry) =>
+                entry.tabs.some((tab) => tab.document?.dirty),
+              );
+              if (group < 0) return leave();
+              this.group = group;
+              this.save(
+                this.tabs.findIndex((tab) => tab.document?.dirty),
+                saveNext,
+              );
             };
             saveNext();
           },
@@ -843,9 +1045,10 @@ export class Workbench {
   reloadConfig() {
     this.config = loadConfig();
     this.tree.exclude = this.config.settings.exclude;
+    this.tree.compact = this.config.settings.compactFolders;
     this.tree.refresh();
     this.files = null;
-    for (const tab of this.tabs)
+    for (const tab of this.allTabs())
       if (tab.document) tab.document.options = this.editOptions();
     this.onConfig(this.config);
     this.changed();
@@ -856,7 +1059,7 @@ export class Workbench {
     this.tree.refresh();
     this.refreshGit();
     this.files = null;
-    for (const tab of this.tabs) {
+    for (const tab of this.allTabs()) {
       if (!tab.path || !tab.document || !paths.includes(tab.path)) continue;
       const modified = modifiedTime(tab.path);
       if (!modified || modified === tab.modified) continue;
@@ -895,14 +1098,14 @@ export class Workbench {
    * @param index the row
    * @param keepFocus leave the keyboard in the explorer
    */
-  openRow(index: number, keepFocus = false) {
+  openRow(index: number, keepFocus = false, pin = true) {
     const row = this.explorerRows()[index];
     if (!row) return;
     this.explorerCursor = index;
     if (row.folder) {
       this.tree.toggle(row.path);
       this.focus = "explorer";
-    } else this.open(row.path, { quiet: keepFocus });
+    } else this.open(row.path, { quiet: keepFocus, preview: !pin });
     this.changed();
   }
 
@@ -981,7 +1184,7 @@ export class Workbench {
             const problem = nameProblem(dirname(path), name);
             if (problem) return problem;
             const target = renameEntry(path, name);
-            for (const tab of this.tabs)
+            for (const tab of this.allTabs())
               if (
                 tab.path &&
                 (tab.path === path || tab.path.startsWith(`${path}/`))
@@ -1000,8 +1203,59 @@ export class Workbench {
     });
   }
 
+  /** The explorer row a drag is over. */
+  dropTarget: string | null = null;
+
+  /**
+   * Moves a file or folder into another folder, as a drag in the explorer does; open tabs follow it.
+   * @param path what to move
+   * @param folder where to
+   */
+  moveEntry(path: string, folder: string) {
+    if (
+      dirname(path) === folder ||
+      folder === path ||
+      folder.startsWith(`${path}/`)
+    )
+      return;
+    const problem = nameProblem(folder, basename(path));
+    if (problem) return this.say(problem, true);
+    try {
+      renameSync(path, join(folder, basename(path)));
+    } catch (error) {
+      return this.say(
+        `Failed to move '${basename(path)}': ${(error as Error).message}`,
+        true,
+      );
+    }
+    const target = join(folder, basename(path));
+    for (const tab of this.allTabs())
+      if (tab.path && (tab.path === path || tab.path.startsWith(`${path}/`)))
+        tab.path = target + tab.path.slice(path.length);
+    this.tree.expanded.add(folder);
+    this.tree.refresh();
+    this.files = null;
+    this.revealInExplorer(target);
+    this.saveSession();
+    this.say(
+      `Moved ${basename(path)} to ${relativeTo(this.root, folder) || basename(this.root)}`,
+    );
+  }
+
   /** Asks, then moves an entry to the Trash; its tabs close. */
   deleteInExplorer(path: string) {
+    if (!this.config.settings.confirmDelete) {
+      try {
+        deleteEntry(path);
+      } catch (error) {
+        return this.say(`Failed to delete: ${(error as Error).message}`, true);
+      }
+      this.closeUnder(path);
+      this.tree.refresh();
+      this.files = null;
+      this.clampExplorer();
+      return this.changed();
+    }
     const folder = this.explorerRows().find((row) => row.path === path)?.folder;
     this.ask({
       title: `Are you sure you want to delete '${basename(path)}'${folder ? " and its contents" : ""}?`,
@@ -1019,14 +1273,7 @@ export class Workbench {
             } catch (error) {
               return `Failed to delete: ${(error as Error).message}`;
             }
-            for (let index = this.tabs.length - 1; index >= 0; index--) {
-              const tabPath = this.tabs[index].path;
-              if (
-                tabPath &&
-                (tabPath === path || tabPath.startsWith(`${path}/`))
-              )
-                this.discard(index);
-            }
+            this.closeUnder(path);
             this.tree.refresh();
             this.files = null;
             this.clampExplorer();
@@ -1124,10 +1371,10 @@ export class Workbench {
         if (row?.folder && !row.expanded) return this.tree.toggle(row.path);
         return row?.folder ? move(this.explorerCursor + 1) : undefined;
       case "enter":
-        return this.openRow(this.explorerCursor);
+        return row && this.renameInExplorer(row.path);
       case "text": {
         if (key.text === " " && !this.typed.text)
-          return this.openRow(this.explorerCursor, true);
+          return this.openRow(this.explorerCursor, !row?.folder, false);
         const now = Date.now();
         this.typed = {
           text:
@@ -1151,6 +1398,7 @@ export class Workbench {
       case "f2":
         return row && this.renameInExplorer(row.path);
       case "delete":
+      case "backspace":
         return row && this.deleteInExplorer(row.path);
       case "escape":
         if (this.tab)
@@ -1643,6 +1891,27 @@ export class Workbench {
     this.changed();
   }
 
+  /**
+   * Opens another folder in place, as VS Code's Open Folder: codeee restarts on it once no file is unsaved.
+   * @param value the folder, `~` allowed
+   * @returns a sentence saying why it cannot, for the dialog
+   */
+  switchFolder(value: string) {
+    const folder = expandPath(value.trim());
+    if (!existsSync(folder) || !statSync(folder).isDirectory())
+      return `${folder} is not a folder.`;
+    if (this.allTabs().some((tab) => tab.document?.dirty))
+      return "Save or close the unsaved files first.";
+    const state = this.config.state;
+    state.recent = [
+      folder,
+      ...state.recent.filter((path) => path !== folder),
+    ].slice(0, this.config.limits.recentFolders);
+    this.saveSession();
+    process.env.CODEEE_NEXT_FOLDER = folder;
+    this.restart();
+  }
+
   /** Opens the most recently closed tab again. */
   reopenClosed() {
     const path = this.closed.pop();
@@ -1678,6 +1947,39 @@ export class Workbench {
     );
     this.reveal(true);
     this.changed();
+  }
+
+  /**
+   * Backs up every unsaved file now, before a restart.
+   * @returns whether every unsaved file could be kept (untitled files cannot, nor anything with hot exit off)
+   */
+  backupAll() {
+    if (this.config.settings.hotExit === "off")
+      return !this.allTabs().some((tab) => tab.document?.dirty);
+    for (const tab of this.allTabs())
+      if (tab.path && tab.document?.dirty)
+        writeBackup({
+          path: tab.path,
+          text: tab.document.text(),
+          modified: tab.modified,
+        });
+    return !this.allTabs().some((tab) => !tab.path && tab.document?.dirty);
+  }
+
+  /** Keeps a changed file's text in a backup a moment after the last edit, for hot exit and crashes. */
+  private scheduleBackup(tab: Tab) {
+    if (!tab.path || this.config.settings.hotExit === "off") return;
+    if (tab.backupTimer) clearTimeout(tab.backupTimer);
+    tab.backupTimer = setTimeout(() => {
+      if (!tab.path || !tab.document) return;
+      if (tab.document.dirty)
+        writeBackup({
+          path: tab.path,
+          text: tab.document.text(),
+          modified: tab.modified,
+        });
+      else removeBackup(tab.path);
+    }, BACKUP_DELAY_MS);
   }
 
   /** Saves a changed file after a pause, when `autoSave` is `afterDelay`, as VS Code's `files.autoSave`. */
@@ -1720,15 +2022,67 @@ export class Workbench {
     });
     const start = { line, column: column - word.length };
     document.replace(start, document.cursor, expanded.text, "edit");
-    const before = expanded.text.slice(0, expanded.cursor).split("\n");
-    const at = {
-      line: line + before.length - 1,
-      column: (before.length === 1 ? start.column : 0) + before.at(-1)!.length,
+    const toPosition = (offset: number) => {
+      const head = expanded.text.slice(0, offset).split("\n");
+      return {
+        line: line + head.length - 1,
+        column: (head.length === 1 ? start.column : 0) + head.at(-1)!.length,
+      };
     };
+    const at = toPosition(expanded.cursor);
     document.select(at, {
       line: at.line,
       column: at.column + expanded.selected,
     });
+    const stops = expanded.placeholders.map((stop) => ({
+      ...toPosition(stop.offset),
+      length: stop.length,
+    }));
+    tab.snippet =
+      stops.length > 1
+        ? {
+            stops,
+            index: 0,
+            lengths: new Map(
+              stops.map((stop) => [
+                stop.line,
+                document.lines[stop.line].length,
+              ]),
+            ),
+          }
+        : undefined;
+    return true;
+  }
+
+  /**
+   * Moves to the next tab stop of the snippet being filled in, selecting its placeholder; the stops after the edited
+   * one move with the text typed on their line.
+   * @returns whether there was one to go to
+   */
+  private nextSnippetStop() {
+    const tab = this.tab;
+    const document = tab?.document;
+    const snippet = tab?.snippet;
+    if (!tab || !document || !snippet) return false;
+    const current = snippet.stops[snippet.index];
+    const delta =
+      document.lines[current.line].length -
+      (snippet.lengths.get(current.line) ?? 0);
+    for (const stop of snippet.stops.slice(snippet.index + 1))
+      if (stop.line === current.line && stop.column >= current.column)
+        stop.column += delta;
+    snippet.lengths.set(current.line, document.lines[current.line].length);
+    snippet.index++;
+    const next = snippet.stops[snippet.index];
+    if (!next || next.line >= document.lines.length) {
+      tab.snippet = undefined;
+      return false;
+    }
+    document.select(next, {
+      line: next.line,
+      column: next.column + next.length,
+    });
+    if (snippet.index === snippet.stops.length - 1) tab.snippet = undefined;
     return true;
   }
 
@@ -1889,6 +2243,30 @@ export class Workbench {
     const select = key.shift;
     const word = key.ctrl || key.alt;
     const page = Math.max(1, this.view.rows - 1);
+    if (
+      document.extras.length &&
+      ["left", "right", "home", "end", "up", "down"].includes(key.name) &&
+      !key.alt
+    ) {
+      document.moveAll((one) => {
+        if (key.name === "left") one.left(key.shift, key.ctrl);
+        else if (key.name === "right") one.right(key.shift, key.ctrl);
+        else if (key.name === "home") one.home(key.shift);
+        else if (key.name === "end") one.end(key.shift);
+        else one.vertical(key.name === "up" ? -1 : 1, key.shift);
+      });
+      return this.afterEdit();
+    }
+    if (document.extras.length) {
+      if (key.name === "text" || key.name === "paste") {
+        document.editAll("type", key.text!.replace(/\n/g, " "));
+        return this.afterEdit();
+      }
+      if (key.name === "backspace" || key.name === "delete") {
+        document.editAll(key.name);
+        return this.afterEdit();
+      }
+    }
     switch (key.name) {
       case "left":
         document.left(select, word);
@@ -1939,7 +2317,8 @@ export class Workbench {
         break;
       case "tab":
         if (key.shift) document.outdent();
-        else if (!this.expandSnippet()) document.indent();
+        else if (!this.nextSnippetStop() && !this.expandSnippet())
+          document.indent();
         break;
       case "escape":
         if (this.find) {
@@ -2590,7 +2969,7 @@ export class Workbench {
         },
       });
       if (abort.signal.aborted) return;
-      for (const tab of this.tabs) {
+      for (const tab of this.allTabs()) {
         if (!tab.path || !tab.document?.dirty) continue;
         const matches = tab.document.find(query.query, query).map((match) => ({
           ...match,
@@ -2676,7 +3055,7 @@ export class Workbench {
       : null;
     let count = 0;
     for (const result of results) {
-      const tab = this.tabs.find(
+      const tab = this.allTabs().find(
         (open) => open.path === result.path && open.document,
       );
       if (tab?.document) {
@@ -2979,6 +3358,107 @@ export class Workbench {
         action: "indentation",
         label: "Change Indentation",
         run: () => this.pickIndentation(),
+      },
+      {
+        action: "addNextOccurrence",
+        label: "Add Selection To Next Find Match",
+        run: () =>
+          this.withDocument((document) => {
+            if (!document.addNextOccurrence()) this.say("No more occurrences");
+          }),
+      },
+      ...(
+        [
+          ["upper", "Transform to Uppercase"],
+          ["lower", "Transform to Lowercase"],
+          ["title", "Transform to Title Case"],
+          ["sortAscending", "Sort Lines Ascending"],
+          ["sortDescending", "Sort Lines Descending"],
+          ["join", "Join Lines"],
+          ["unique", "Delete Duplicate Lines"],
+          ["trim", "Trim Trailing Whitespace"],
+        ] as const
+      ).map(([transform, label]) => ({
+        action: `transform.${transform}`,
+        label,
+        run: () =>
+          this.withDocument((document) => transformLines(document, transform)),
+      })),
+      {
+        action: "openFolder",
+        label: "File: Open Folder...",
+        run: () =>
+          this.ask({
+            title: "Open Folder",
+            message: "The folder codeee shows instead of this one",
+            input: field(this.root),
+            buttons: [
+              {
+                label: "Open",
+                primary: true,
+                run: (value) => this.switchFolder(value),
+              },
+              { label: "Cancel", run: () => undefined },
+            ],
+          }),
+      },
+      {
+        action: "openRecent",
+        label: "File: Open Recent...",
+        run: () => {
+          this.palette = {
+            field: field(),
+            cursor: 0,
+            placeholder: "Select to open",
+            items: [],
+          };
+          this.paletteSource = (query) =>
+            this.config.state.recent
+              .filter((folder) => folder !== this.root)
+              .flatMap((folder) => {
+                const match = fuzzyMatch(folder, query);
+                return match
+                  ? [
+                      {
+                        label: basename(folder),
+                        detail: folder,
+                        run: () => void this.switchFolder(folder),
+                      },
+                    ]
+                  : [];
+              });
+          this.filterPalette();
+        },
+      },
+      {
+        action: "wordWrap",
+        label: "View: Toggle Word Wrap",
+        run: () =>
+          this.setSetting("settings.wordWrap", !this.config.settings.wordWrap),
+      },
+      {
+        action: "duplicateLineUp",
+        label: "Copy Line Up",
+        run: () =>
+          this.withDocument((document) => document.duplicateLines(true)),
+      },
+      {
+        action: "splitEditor",
+        label: "View: Split Editor",
+        run: () => this.splitEditor(),
+      },
+      {
+        action: "focusNextGroup",
+        label: "View: Focus Next Editor Group",
+        run: () => this.focusGroup((this.group + 1) % this.groups.length),
+      },
+      {
+        action: "focusPreviousGroup",
+        label: "View: Focus Previous Editor Group",
+        run: () =>
+          this.focusGroup(
+            (this.group - 1 + this.groups.length) % this.groups.length,
+          ),
       },
       {
         action: "goToSymbol",

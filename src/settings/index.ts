@@ -122,6 +122,20 @@ const KEYS: [string, string, string, string][] = [
     "Fold or unfold the block at the cursor.",
   ],
   [
+    "wordWrap",
+    "View",
+    "Toggle Word Wrap",
+    "Wrap long lines at the editor's width, or scroll them sideways.",
+  ],
+  ["foldAll", "View", "Fold All", "Fold every block of the file."],
+  ["unfoldAll", "View", "Unfold All", "Unfold every block of the file."],
+  [
+    "duplicateLineUp",
+    "Edit",
+    "Copy Line Up",
+    "Copy the selected lines above themselves.",
+  ],
+  [
     "reopenClosed",
     "View",
     "Reopen Closed Editor",
@@ -162,6 +176,12 @@ const KEYS: [string, string, string, string][] = [
     "Edit",
     "Replace in Files",
     "Show the Search view with replace, to replace across every file in the folder.",
+  ],
+  [
+    "addNextOccurrence",
+    "Selection",
+    "Add Selection To Next Find Match",
+    "Select the word at the cursor; again, add a cursor at its next occurrence. Typing then edits them all.",
   ],
   ["selectAll", "Selection", "Select All", "Select the whole file."],
   [
@@ -218,6 +238,30 @@ export const SETTINGS: SettingSpec[] = [
         { value: "none", description: "No file icons." },
       ],
     },
+  ),
+  setting(
+    "settings.wrapTabs",
+    "Workbench",
+    "Appearance",
+    "Wrap Tabs",
+    "Controls whether tabs should be wrapped over multiple lines when exceeding available space.",
+    "boolean",
+  ),
+  setting(
+    "settings.compactFolders",
+    "Workbench",
+    "Explorer",
+    "Compact Folders",
+    "Controls whether the Explorer should render folders in a compact form. In such a form, single child folders will be compressed in a combined tree element.",
+    "boolean",
+  ),
+  setting(
+    "settings.confirmDelete",
+    "Workbench",
+    "Explorer",
+    "Confirm Delete",
+    "Controls whether the Explorer should ask for confirmation when deleting a file via the trash.",
+    "boolean",
   ),
   setting(
     "settings.explorer",
@@ -324,6 +368,28 @@ export const SETTINGS: SettingSpec[] = [
     },
   ),
   setting(
+    "settings.hotExit",
+    "Text Editor",
+    "Files",
+    "Hot Exit",
+    "Controls whether unsaved files are remembered between sessions, allowing the save prompt when exiting the editor to be skipped.",
+    "enum",
+    {
+      choices: [
+        {
+          value: "onExit",
+          description:
+            "Unsaved files are kept when codeee quits or stops, and restored next time.",
+        },
+        {
+          value: "off",
+          description:
+            "Disable hot exit. A prompt will show when attempting to quit with unsaved files.",
+        },
+      ],
+    },
+  ),
+  setting(
     "settings.formatOnSave",
     "Text Editor",
     "Formatting",
@@ -422,6 +488,51 @@ export const SETTINGS: SettingSpec[] = [
     "Sticky Scroll",
     "Shows the lines that open the blocks around the top of the editor, pinned while you scroll.",
     "boolean",
+  ),
+  setting(
+    "settings.wordWrap",
+    "Text Editor",
+    "Cursor",
+    "Word Wrap",
+    "Wraps lines at the editor's width instead of scrolling them sideways.",
+    "boolean",
+    { common: true },
+  ),
+  setting(
+    "settings.renderWhitespace",
+    "Text Editor",
+    "Cursor",
+    "Render Whitespace",
+    "Controls how the editor should render whitespace characters.",
+    "enum",
+    {
+      common: true,
+      choices: [
+        { value: "none", description: "Whitespace is not drawn." },
+        {
+          value: "selection",
+          description: "Whitespace is drawn inside selections only.",
+        },
+        { value: "all", description: "Every space and tab is drawn." },
+      ],
+    },
+  ),
+  setting(
+    "settings.showFoldingControls",
+    "Text Editor",
+    "Cursor",
+    "Show Folding Controls",
+    "Controls when the folding controls on the gutter are shown.",
+    "enum",
+    {
+      choices: [
+        { value: "always", description: "Always show the folding controls." },
+        {
+          value: "mouseover",
+          description: "Show the folding control of the cursor line only.",
+        },
+      ],
+    },
   ),
   setting(
     "settings.wheelLines",

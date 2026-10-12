@@ -54,6 +54,11 @@ export type KeyBindings = Record<
   | "comment"
   | "format"
   | "goToSymbol"
+  | "duplicateLineUp"
+  | "foldAll"
+  | "unfoldAll"
+  | "wordWrap"
+  | "addNextOccurrence"
   | "toggleFold"
   | "reopenClosed"
   | "markdownPreview"
@@ -119,6 +124,18 @@ export interface EditorSettings {
   guides: boolean;
   /** Shows the minimap at the editor's right edge. */
   minimap: boolean;
+  /** Wraps long lines at the editor's width, as VS Code's `editor.wordWrap`. */
+  wordWrap: boolean;
+  /** `none`, `selection` or `all`, as VS Code's `editor.renderWhitespace`. */
+  renderWhitespace: string;
+  /** `always` or `mouseover` (the cursor line), as `editor.showFoldingControls`. */
+  showFoldingControls: string;
+  /** Tabs that do not fit wrap onto more rows, as `workbench.editor.wrapTabs`. */
+  wrapTabs: boolean;
+  /** Asks before deleting from the explorer, as `explorer.confirmDelete`. */
+  confirmDelete: boolean;
+  /** Folders holding a single folder show as one row, as `explorer.compactFolders`. */
+  compactFolders: boolean;
   /** Pins the lines that open the blocks around the top of the editor, as VS Code's sticky scroll. */
   stickyScroll: boolean;
   /** Lints JavaScript and TypeScript with the project's ESLint and shows the problems at line ends, as Error Lens. */
@@ -127,6 +144,8 @@ export interface EditorSettings {
   snippets: boolean;
   /** `off`, `afterDelay` or `onFocusChange`, as VS Code's `files.autoSave`. */
   autoSave: string;
+  /** `onExit` keeps unsaved files across quits and crashes without asking, `off` asks on quit, as `files.hotExit`. */
+  hotExit: string;
   autoIndent: boolean;
   autoClosingBrackets: boolean;
   trimTrailingWhitespace: boolean;
@@ -191,7 +210,10 @@ const FORMATTING = {
 
 /** Allowed values of the settings that take one of a few words. */
 const CHOICES: Record<string, readonly string[]> = {
+  "settings.renderWhitespace": ["none", "selection", "all"],
+  "settings.showFoldingControls": ["always", "mouseover"],
   "settings.autoSave": ["off", "afterDelay", "onFocusChange"],
+  "settings.hotExit": ["onExit", "off"],
   "settings.iconTheme": ["vscode", "none"],
 };
 

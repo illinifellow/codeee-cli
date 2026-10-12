@@ -209,19 +209,38 @@ export const expandSnippet = (
       (index ? context.indent : "") +
       line.replace(/^\t+/, (tabs) => context.unit.repeat(tabs.length)),
   );
-  const tabs = lines[cursorLine].match(/^\t*/)![0].length;
-  const column =
-    (cursorLine ? context.indent.length : 0) +
-    (cursorColumn >= tabs
-      ? cursorColumn + tabs * (context.unit.length - 1)
-      : cursorColumn * context.unit.length);
-  const cursor =
-    shapedLines
-      .slice(0, cursorLine)
-      .reduce((total, line) => total + line.length + 1, 0) + column;
+  /** Maps an offset in the unshaped text to the shaped text. */
+  const shape = (offset: number) => {
+    const head = text.slice(0, offset).split("\n");
+    const line = head.length - 1;
+    const columnRaw = head[line].length;
+    const tabs = lines[line].match(/^\t*/)![0].length;
+    const column =
+      (line ? context.indent.length : 0) +
+      (columnRaw >= tabs
+        ? columnRaw + tabs * (context.unit.length - 1)
+        : columnRaw * context.unit.length);
+    return (
+      shapedLines
+        .slice(0, line)
+        .reduce((total, shaped) => total + shaped.length + 1, 0) + column
+    );
+  };
+  void cursorColumn;
+  const cursor = shape(target);
+  const order = [...stops.keys()]
+    .filter((number) => number > 0)
+    .sort((a, b) => a - b);
+  if (stops.has(0)) order.push(0);
+  const placeholders = order.map((number) => ({
+    offset: shape(stops.get(number)!),
+    length: lengths.get(number) ?? 0,
+  }));
   return {
     text: shapedLines.join("\n"),
     cursor,
     selected: firstStop === undefined ? 0 : (lengths.get(firstStop) ?? 0),
+    /** Every tab stop in order (`$0` last), as offsets in the text with the length of its placeholder. */
+    placeholders,
   };
 };
