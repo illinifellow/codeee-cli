@@ -65,7 +65,12 @@ import { foldEnd, foldsHiding, visibleLines } from "@/folding";
 import { readBackups, removeBackup, writeBackup } from "@/backup";
 import { formatText } from "@/format";
 import { lintText, type Diagnostic } from "@/lint";
-import { expandSnippet, findSnippet, loadSnippets } from "@/snippets";
+import {
+  expandSnippet,
+  findSnippet,
+  loadSnippets,
+  snippetsFor,
+} from "@/snippets";
 import { fileSymbols, type FileSymbol } from "@/symbols";
 import {
   replaceInFile,
@@ -282,6 +287,9 @@ const revealInFinder = (path: string) => {
 
 /** How often git's status is read again, for commits and staging made elsewhere (the watcher skips `.git`). */
 const GIT_POLL_MS = 3000;
+
+/** The most suggestions the list shows, as VS Code's suggest widget. */
+const SUGGESTIONS = 12;
 
 /** A cursor move farther than this many lines counts as a jump for Go Back. */
 const NAVIGATION_LINES = 10;
@@ -2268,6 +2276,94 @@ export class Workbench {
     if (path) this.open(path);
   }
 
+  /** The suggestion list at the cursor, as VS Code's IntelliSense with word-based suggestions and snippets. */
+  suggest: {
+    items: { label: string; kind: "word" | "snippet"; detail: string }[];
+    cursor: number;
+    start: Position;
+  } | null = null;
+
+  /**
+   * Fills the suggestion list for the word before the cursor: words of the open files and snippets that match it.
+   * @param open open the list when it is closed (a word character was typed); otherwise only refresh an open one
+   */
+  updateSuggestions(open: boolean) {
+    const tab = this.tab;
+    const document = tab?.document;
+    if (!tab || !document || document.extras.length || (!open && !this.suggest))
+      return;
+    const { line, column } = document.cursor;
+    const prefix =
+      /[\p{L}\p{N}_$]+$/u.exec(document.lines[line].slice(0, column))?.[0] ??
+      "";
+    if (!prefix || /^\d/.test(prefix)) {
+      this.suggest = null;
+      return;
+    }
+    const words = new Map<string, number>();
+    for (const open of new Set(
+      this.allTabs()
+        .map((other) => other.document)
+        .filter(Boolean),
+    ))
+      for (const text of open!.lines)
+        for (const match of text.matchAll(/[\p{L}_$][\p{L}\p{N}_$]{2,}/gu))
+          words.set(match[0], (words.get(match[0]) ?? 0) + 1);
+    if (document.lines[line].slice(column - prefix.length).startsWith(prefix)) {
+      const own = /^[\p{L}\p{N}_$]+/u.exec(
+        document.lines[line].slice(column - prefix.length),
+      )?.[0];
+      if (own && words.get(own) === 1) words.delete(own);
+    }
+    loadSnippets();
+    const items = [
+      ...[...words.keys()]
+        .filter((word) => word !== prefix)
+        .flatMap((word) => {
+          const match = fuzzyMatch(word, prefix);
+          return match && word.toLowerCase().startsWith(prefix[0].toLowerCase())
+            ? [
+                {
+                  label: word,
+                  kind: "word" as const,
+                  detail: "",
+                  score: match.score,
+                },
+              ]
+            : [];
+        }),
+      ...snippetsFor(tab.language).flatMap((snippet) =>
+        snippet.prefix.toLowerCase().startsWith(prefix.toLowerCase())
+          ? [
+              {
+                label: snippet.prefix,
+                kind: "snippet" as const,
+                detail: snippet.description,
+                score: 100,
+              },
+            ]
+          : [],
+      ),
+    ]
+      .sort((a, b) => b.score - a.score || a.label.length - b.label.length)
+      .slice(0, SUGGESTIONS);
+    this.suggest = items.length
+      ? { items, cursor: 0, start: { line, column: column - prefix.length } }
+      : null;
+  }
+
+  /** Inserts a suggestion in place of the word before the cursor; a snippet expands. */
+  acceptSuggestion(index: number) {
+    const suggest = this.suggest;
+    const document = this.tab?.document;
+    this.suggest = null;
+    const item = suggest?.items[index];
+    if (!item || !document || !suggest) return;
+    document.replace(suggest.start, document.cursor, item.label, "edit");
+    if (item.kind === "snippet") this.expandSnippet();
+    this.afterEdit();
+  }
+
   /** Moves the cursor to the next or previous ESLint problem, wrapping around, and shows its message. */
   stepProblem(step: 1 | -1) {
     const tab = this.tab;
@@ -2608,6 +2704,24 @@ export class Workbench {
   private editorKey(key: KeyEvent) {
     const document = this.tab?.document;
     if (!document) return;
+    if (this.suggest) {
+      const suggest = this.suggest;
+      if (key.name === "up" || key.name === "down") {
+        suggest.cursor =
+          (suggest.cursor +
+            (key.name === "up" ? -1 : 1) +
+            suggest.items.length) %
+          suggest.items.length;
+        return;
+      }
+      if (key.name === "enter" || key.name === "tab")
+        return this.acceptSuggestion(suggest.cursor);
+      if (key.name === "escape") {
+        this.suggest = null;
+        return;
+      }
+      if (key.name !== "text" && key.name !== "backspace") this.suggest = null;
+    }
     const select = key.shift;
     const word = key.ctrl || key.alt;
     const page = Math.max(1, this.view.rows - 1);
@@ -2679,6 +2793,7 @@ export class Workbench {
         break;
       case "backspace":
         document.backspace(word);
+        this.updateSuggestions(false);
         break;
       case "delete":
         document.deleteForward(word);
@@ -2701,6 +2816,7 @@ export class Workbench {
         break;
       case "text":
         document.type(key.text!);
+        this.updateSuggestions(/^[\p{L}\p{N}_$]$/u.test(key.text!));
         break;
       case "paste":
         document.paste(key.text!);

@@ -244,3 +244,12 @@ export const expandSnippet = (
     placeholders,
   };
 };
+
+/**
+ * @param language the file's shiki language
+ * @returns every snippet that applies to it, for the suggestion list
+ */
+export const snippetsFor = (language: string | null): Snippet[] => [
+  ...((language && SNIPPETS.get(language)?.values()) || []),
+  ...(SNIPPETS.get("*")?.values() ?? []),
+];

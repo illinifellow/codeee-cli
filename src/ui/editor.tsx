@@ -757,6 +757,93 @@ export const CodeView = memo(
         </Box>,
       );
     }
+    const suggest = focused ? workbench.suggest : null;
+    let suggestBox: ReactNode = null;
+    if (suggest) {
+      const row = entries.findIndex(
+        (entry) => entry.line === suggest.start.line && !entry.pinned,
+      );
+      if (row >= 0) {
+        const cell =
+          cellOf(
+            document.lines[suggest.start.line],
+            suggest.start.column,
+            document.indentation.size,
+          ) - entries[row].left;
+        const boxWidth = Math.min(
+          width - 2,
+          Math.max(
+            24,
+            ...suggest.items.map(
+              (item) =>
+                item.label.length + 4 + Math.min(item.detail.length, 30),
+            ),
+          ),
+        );
+        const below = row + 1 + suggest.items.length + 2 <= height;
+        const top = below
+          ? row + 1
+          : Math.max(0, row - suggest.items.length - 2);
+        suggestBox = (
+          <Box
+            position="absolute"
+            marginTop={top}
+            marginLeft={Math.max(
+              0,
+              Math.min(gutter + cell - 1, width - boxWidth),
+            )}
+            width={boxWidth}
+            flexDirection="column"
+            borderStyle="round"
+            borderColor={palette.border}
+            backgroundColor={palette.background}
+            borderBackgroundColor={palette.background}
+          >
+            {suggest.items.map((item, index) => (
+              <Clickable
+                key={`${item.kind}-${item.label}`}
+                height={1}
+                onClick={() => workbench.acceptSuggestion(index)}
+              >
+                <Text
+                  backgroundColor={
+                    index === suggest.cursor
+                      ? palette.selection
+                      : palette.background
+                  }
+                >
+                  <Text
+                    color={
+                      item.kind === "snippet"
+                        ? palette.accent
+                        : palette.textMuted
+                    }
+                  >
+                    {item.kind === "snippet" ? " ◫ " : " ≡ "}
+                  </Text>
+                  <Text color={palette.text}>
+                    {fit(
+                      item.label,
+                      Math.max(
+                        1,
+                        boxWidth - 6 - Math.min(item.detail.length, 30),
+                      ),
+                    )}
+                  </Text>
+                  <Text color={palette.textMuted}>
+                    {fit(
+                      item.detail ? ` ${item.detail}` : "",
+                      Math.min(item.detail.length + 1, 30),
+                    )}
+                  </Text>
+                  <Text> </Text>
+                </Text>
+              </Clickable>
+            ))}
+          </Box>
+        );
+      }
+    }
     const pointAt = (event: LocalMouseEvent) =>
       workbench.positionAt(event.localY, event.localX);
     return (
@@ -797,6 +884,7 @@ export const CodeView = memo(
             scrollTo(event.localY);
             return (move) => scrollTo(move.localY);
           }
+          workbench.suggest = null;
           const group = workbench.groups.findIndex((entry) =>
             entry.tabs.includes(tab),
           );
@@ -929,6 +1017,7 @@ export const CodeView = memo(
         }}
       >
         {rows}
+        {suggestBox}
       </Clickable>
     );
   },
