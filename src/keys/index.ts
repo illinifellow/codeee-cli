@@ -274,3 +274,28 @@ export const useKeys = (handler: (event: KeyEvent) => void, active = true) => {
     return () => void keyboard.off("key", listener);
   }, [active]);
 };
+
+/** What macOS types for Option with each letter on the US layout, lower case then with Shift, for terminals that send Option as text. */
+const OPTION_LETTERS: Record<string, string> = Object.fromEntries([
+  ..."å∫ç∂´ƒ©˙ˆ∆˚¬µ˜øπœ®ß†¨√∑≈¥Ω"
+    .split("")
+    .map((character, index) => [
+      character,
+      `alt+${String.fromCharCode(97 + index)}`,
+    ]),
+  ..."ÅıÇÎ´Ï˝ÓˆÔÒÂ˜ØˆØ∏Œ‰Íˇ¨◊„˛Á¸"
+    .split("")
+    .map((character, index) => [
+      character,
+      `alt+shift+${String.fromCharCode(97 + index)}`,
+    ]),
+]);
+
+/**
+ * @param event a key event
+ * @returns the Alt chord a typed Option character stands for (`√` is `alt+v`), or `null`
+ */
+export const optionChord = (event: KeyEvent) =>
+  event.name === "text" && event.text && [...event.text].length === 1
+    ? (OPTION_LETTERS[event.text] ?? null)
+    : null;

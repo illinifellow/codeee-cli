@@ -71,7 +71,7 @@ import {
   type LineChange,
 } from "@/git";
 import { Icons } from "@/icons";
-import { bindingOf, type KeyEvent } from "@/keys";
+import { bindingOf, optionChord, type KeyEvent } from "@/keys";
 import { allLanguages, commentOf, languageOf } from "@/languages";
 import {
   parseValue,
@@ -1956,7 +1956,7 @@ export class Workbench {
 
   private findKey(key: KeyEvent) {
     const find = this.find!;
-    const binding = bindingOf(key);
+    const binding = optionChord(key) ?? bindingOf(key);
     if (key.name === "escape") {
       this.find = null;
       return;
@@ -2566,7 +2566,7 @@ export class Workbench {
   private searchKey(key: KeyEvent) {
     const view = this.search;
     const rows = this.searchRows();
-    const binding = bindingOf(key);
+    const binding = optionChord(key) ?? bindingOf(key);
     if (binding === "alt+c") return this.toggleSearchOption("caseSensitive");
     if (binding === "alt+w") return this.toggleSearchOption("wholeWord");
     if (binding === "alt+r") return this.toggleSearchOption("regex");
@@ -2876,10 +2876,15 @@ export class Workbench {
     else if (this.menu) this.menuKey(key);
     else if (this.palette) this.paletteKey(key);
     else {
-      const binding = bindingOf(key);
-      const action = Object.entries(this.config.keys).find(
-        ([, bound]) => bound === binding,
-      )?.[0];
+      const typed = bindingOf(key);
+      const chord = optionChord(key);
+      const bound = (binding: string | null) =>
+        binding
+          ? Object.entries(this.config.keys).find(
+              ([, value]) => value === binding,
+            )?.[0]
+          : undefined;
+      const action = bound(typed) ?? bound(chord);
       const command =
         action && this.commands().find((entry) => entry.action === action);
       const typing =
