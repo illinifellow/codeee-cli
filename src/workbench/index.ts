@@ -441,7 +441,7 @@ export class Workbench {
   };
   status: Status | null = null;
   /** Which view the side bar shows. */
-  side: "explorer" | "search" = "explorer";
+  side: "explorer" | "search" | "outline" = "explorer";
   search: SearchView = {
     query: field(),
     replacement: field(),
@@ -3842,6 +3842,15 @@ export class Workbench {
         action: "selectAllOccurrences",
         label: "Change All Occurrences",
         run: () => this.selectAllOccurrences(),
+      },
+      {
+        action: "outline",
+        label: "View: Show Outline",
+        run: () => {
+          this.side = this.side === "outline" ? "explorer" : "outline";
+          if (!this.config.settings.explorer)
+            this.setSetting("settings.explorer", true);
+        },
       },
       {
         action: "openChanges",

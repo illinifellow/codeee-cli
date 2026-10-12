@@ -26,6 +26,7 @@ import { CodeView } from "./editor";
 import { stickyLines } from "@/symbols";
 import { DiffView } from "./diff";
 import { MarkdownView } from "./markdown";
+import { OutlineView } from "./outline";
 import { SearchView } from "./search";
 import { SettingsPage } from "./settings";
 import { useTheme } from "./theme";
@@ -207,7 +208,14 @@ export const App = ({
     }
   };
 
-  const explorer = !showExplorer ? null : workbench.side === "search" ? (
+  const explorer = !showExplorer ? null : workbench.side === "outline" ? (
+    <OutlineView
+      workbench={workbench}
+      width={sideWidth}
+      height={bodyHeight}
+      version={version}
+    />
+  ) : workbench.side === "search" ? (
     <SearchView
       workbench={workbench}
       width={sideWidth}
