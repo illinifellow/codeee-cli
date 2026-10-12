@@ -575,6 +575,20 @@ export class Workbench {
     this.group = 0;
     this.layout = session?.layout ?? "horizontal";
     for (const backup of readBackups()) {
+      const untitled = `untitled:${root}:`;
+      if (backup.path.startsWith(untitled)) {
+        const title = backup.path.slice(untitled.length);
+        const tab = this.createTab(null, title, "", null);
+        tab.document!.setText(backup.text);
+        this.tabs.push(tab);
+        this.untitled = Math.max(
+          this.untitled,
+          Number(/\d+$/.exec(title)?.[0] ?? 0),
+        );
+        removeBackup(backup.path);
+        if (this.active < 0) this.active = 0;
+        continue;
+      }
       if (!backup.path.startsWith(`${root}/`) || !modifiedTime(backup.path))
         continue;
       const before = this.active;
@@ -1009,6 +1023,7 @@ export class Workbench {
                 ? value
                 : resolve(this.root, value.trim());
               if (!value.trim()) return "A file name must be provided.";
+              removeBackup(this.backupKey(tab));
               tab.path = path;
               tab.title = basename(path);
               tab.language = languageOf(path, tab.document!.lines[0]);
@@ -1111,16 +1126,8 @@ export class Workbench {
       this.onQuit();
     };
     if (!dirty.length) return leave();
-    if (
-      this.config.settings.hotExit === "onExit" &&
-      dirty.every((tab) => tab.path)
-    ) {
-      for (const tab of dirty)
-        writeBackup({
-          path: tab.path!,
-          text: tab.document!.text(),
-          modified: tab.modified,
-        });
+    if (this.config.settings.hotExit === "onExit") {
+      this.backupAll();
       return leave();
     }
     this.ask({
@@ -2619,28 +2626,34 @@ export class Workbench {
     if (this.config.settings.hotExit === "off")
       return !this.allTabs().some((tab) => tab.document?.dirty);
     for (const tab of this.allTabs())
-      if (tab.path && tab.document?.dirty)
+      if (tab.document?.dirty)
         writeBackup({
-          path: tab.path,
+          path: this.backupKey(tab),
           text: tab.document.text(),
           modified: tab.modified,
         });
-    return !this.allTabs().some((tab) => !tab.path && tab.document?.dirty);
+    return true;
+  }
+
+  /** @returns where a tab's unsaved text is kept: its path, or `untitled:<folder>:<title>` for an untitled file */
+  private backupKey(tab: Tab) {
+    return tab.path ?? `untitled:${this.root}:${tab.title}`;
   }
 
   /** Keeps a changed file's text in a backup a moment after the last edit, for hot exit and crashes. */
   private scheduleBackup(tab: Tab) {
-    if (!tab.path || this.config.settings.hotExit === "off") return;
+    if (this.config.settings.hotExit === "off") return;
     if (tab.backupTimer) clearTimeout(tab.backupTimer);
     tab.backupTimer = setTimeout(() => {
-      if (!tab.path || !tab.document) return;
-      if (tab.document.dirty)
+      if (!tab.document) return;
+      const key = this.backupKey(tab);
+      if (tab.document.dirty && (tab.path || tab.document.text()))
         writeBackup({
-          path: tab.path,
+          path: key,
           text: tab.document.text(),
           modified: tab.modified,
         });
-      else removeBackup(tab.path);
+      else removeBackup(key);
     }, BACKUP_DELAY_MS);
   }
 
@@ -4296,7 +4309,7 @@ export class Workbench {
                   const path = isAbsolute(value)
                     ? value
                     : resolve(this.root, value.trim());
-                  if (tab.path && path !== tab.path) removeBackup(tab.path);
+                  if (path !== tab.path) removeBackup(this.backupKey(tab));
                   tab.path = path;
                   tab.title = basename(path);
                   tab.language = languageOf(path, tab.document!.lines[0]);
