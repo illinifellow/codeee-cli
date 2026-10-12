@@ -80,6 +80,9 @@ import {
   type SearchMatch,
 } from "@/search";
 import {
+  readScm,
+  scmAction,
+  type ScmEntry,
   blameLine,
   diffLines,
   inlineDiff,
@@ -103,7 +106,7 @@ import {
 } from "@/settings";
 
 /** Which part of the screen has the keyboard. */
-export type Focus = "editor" | "explorer" | "settings" | "search";
+export type Focus = "editor" | "explorer" | "settings" | "search" | "scm";
 
 /** An editor tab. */
 export interface Tab {
@@ -454,7 +457,7 @@ export class Workbench {
   };
   status: Status | null = null;
   /** Which view the side bar shows. */
-  side: "explorer" | "search" | "outline" = "explorer";
+  side: "explorer" | "search" | "outline" | "scm" = "explorer";
   search: SearchView = {
     query: field(),
     replacement: field(),
@@ -553,6 +556,7 @@ export class Workbench {
 
   /** Reads git's status again in the background; a request during a read runs once more after it. */
   refreshGit() {
+    if (this.side === "scm") void this.refreshScm();
     if (this.gitReading) {
       this.gitAgain = true;
       return;
@@ -2205,6 +2209,157 @@ export class Workbench {
     this.active++;
     this.focus = "editor";
     this.changed();
+  }
+
+  /** The Source Control view: changed files, the commit message, which row has the keyboard. */
+  scm: {
+    root: string;
+    entries: ScmEntry[];
+    message: Field;
+    cursor: number;
+    typing: boolean;
+  } | null = null;
+
+  /** Shows the Source Control view and reads the repository's changes. */
+  async openScm() {
+    this.side = "scm";
+    this.focus = "scm";
+    if (!this.config.settings.explorer)
+      this.setSetting("settings.explorer", true);
+    await this.refreshScm();
+    if (this.scm) this.scm.typing = true;
+    this.changed();
+  }
+
+  /** Reads the changed files again, keeping the message and cursor. */
+  async refreshScm() {
+    const found = await readScm(this.root);
+    if (!found) {
+      this.scm = null;
+      return this.changed();
+    }
+    this.scm = {
+      ...found,
+      message: this.scm?.message ?? field(),
+      cursor: Math.min(
+        this.scm?.cursor ?? 0,
+        Math.max(0, found.entries.length - 1),
+      ),
+      typing: this.scm?.typing ?? true,
+    };
+    this.changed();
+  }
+
+  /** @returns the Source Control rows in display order: staged first, then changes */
+  scmRows() {
+    const entries = this.scm?.entries ?? [];
+    return [
+      ...entries.filter((entry) => entry.staged),
+      ...entries.filter((entry) => !entry.staged),
+    ];
+  }
+
+  /**
+   * Stages or unstages a changed file, as the + and − buttons do.
+   * @param entry the row
+   */
+  async toggleStage(entry: ScmEntry) {
+    if (!this.scm) return;
+    const error = entry.staged
+      ? await scmAction(this.scm.root, [
+          "restore",
+          "--staged",
+          "--",
+          entry.path,
+        ])
+      : await scmAction(this.scm.root, ["add", "--", entry.path]);
+    if (error) this.say(error, true);
+    await this.refreshScm();
+    this.refreshGit();
+  }
+
+  /** Commits the staged changes with the message; with nothing staged, offers to stage everything first, as VS Code. */
+  async commitScm() {
+    const scm = this.scm;
+    if (!scm) return;
+    const message = scm.message.value.trim();
+    if (!message) return this.say("Please provide a commit message", true);
+    const run = async () => {
+      const error = await scmAction(scm.root, ["commit", "-m", message]);
+      if (error) return this.say(error, true);
+      scm.message = field();
+      this.say(`Committed: ${message}`);
+      await this.refreshScm();
+      this.refreshGit();
+    };
+    if (scm.entries.some((entry) => entry.staged)) return run();
+    this.ask({
+      title: "There are no staged changes to commit.",
+      message:
+        "Would you like to stage all your changes and commit them directly?",
+      buttons: [
+        {
+          label: "Yes",
+          primary: true,
+          run: () => {
+            void scmAction(scm.root, ["add", "-A"]).then((error) =>
+              error ? this.say(error, true) : run(),
+            );
+          },
+        },
+        { label: "Cancel", run: () => undefined },
+      ],
+    });
+  }
+
+  private scmKey(key: KeyEvent) {
+    const scm = this.scm;
+    if (!scm) return;
+    const rows = this.scmRows();
+    if (scm.typing) {
+      if (key.name === "enter") return void this.commitScm();
+      if (key.name === "down" || key.name === "tab") {
+        scm.typing = false;
+        scm.cursor = 0;
+        return;
+      }
+      if (key.name === "escape") {
+        if (this.tab) this.focus = "editor";
+        return;
+      }
+      const next = editField(scm.message, key);
+      if (next) scm.message = next;
+      return;
+    }
+    const row = rows[scm.cursor];
+    switch (key.name) {
+      case "up":
+        if (scm.cursor === 0) scm.typing = true;
+        else scm.cursor--;
+        return;
+      case "down":
+        scm.cursor = Math.min(rows.length - 1, scm.cursor + 1);
+        return;
+      case "enter":
+        if (row) void this.openScmRow(row);
+        return;
+      case "text":
+        if (row && (key.text === " " || key.text === "+" || key.text === "-"))
+          void this.toggleStage(row);
+        return;
+      case "escape":
+        if (this.tab) this.focus = "editor";
+        return;
+    }
+  }
+
+  /** Opens a changed file's changes, or the file itself when it is new. */
+  async openScmRow(entry: ScmEntry) {
+    if (entry.state === "deleted")
+      return this.say(`${basename(entry.path)} is deleted`);
+    this.open(entry.path);
+    if (entry.state !== "untracked" && entry.state !== "added")
+      await this.openChanges();
   }
 
   /** Lists the ESLint problems of every open file in Quick Open, errors first, as VS Code's Problems view. */
@@ -4208,6 +4363,11 @@ export class Workbench {
           }),
       },
       {
+        action: "scm",
+        label: "View: Show Source Control",
+        run: () => void this.openScm(),
+      },
+      {
         action: "outline",
         label: "View: Show Outline",
         run: () => {
@@ -4465,6 +4625,7 @@ export class Workbench {
       const typing =
         (this.find?.field && this.focus === "editor") ||
         (this.focus === "search" && this.search.field) ||
+        (this.focus === "scm" && this.scm?.typing) ||
         (this.focus === "settings" &&
           (this.settingsView.searching || this.settingsView.editing));
       const fieldKeys = ["copy", "cut", "paste", "selectAll", "undo", "redo"];
@@ -4472,6 +4633,7 @@ export class Workbench {
       else if (this.find?.field && this.focus === "editor") this.findKey(key);
       else if (this.focus === "explorer") this.explorerKey(key);
       else if (this.focus === "search") this.searchKey(key);
+      else if (this.focus === "scm") this.scmKey(key);
       else if (this.focus === "settings") this.settingsKey(key);
       else if (this.tab?.kind === "preview" || this.tab?.kind === "diff") {
         const step = {

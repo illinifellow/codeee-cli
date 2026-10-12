@@ -27,6 +27,7 @@ import { stickyLines } from "@/symbols";
 import { DiffView } from "./diff";
 import { MarkdownView } from "./markdown";
 import { OutlineView } from "./outline";
+import { ScmView } from "./scm";
 import { SearchView } from "./search";
 import { SettingsPage } from "./settings";
 import { useTheme } from "./theme";
@@ -209,7 +210,14 @@ export const App = ({
     }
   };
 
-  const explorer = !showExplorer ? null : workbench.side === "outline" ? (
+  const explorer = !showExplorer ? null : workbench.side === "scm" ? (
+    <ScmView
+      workbench={workbench}
+      width={sideWidth}
+      height={bodyHeight}
+      version={version}
+    />
+  ) : workbench.side === "outline" ? (
     <OutlineView
       workbench={workbench}
       width={sideWidth}

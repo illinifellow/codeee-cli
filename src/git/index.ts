@@ -315,3 +315,63 @@ export const inlineDiff = async (
   }
   return rows;
 };
+
+/** One changed file for the Source Control view. */
+export interface ScmEntry {
+  path: string;
+  state: GitState;
+  staged: boolean;
+}
+
+/**
+ * Lists the changed files of the repository a folder is in, staged and unstaged apart, as VS Code's Source Control view.
+ * @param folder the opened folder
+ * @returns the entries and the repository root, or `null` outside a repository
+ */
+export const readScm = async (
+  folder: string,
+): Promise<{ root: string; entries: ScmEntry[] } | null> => {
+  const top = await run(["rev-parse", "--show-toplevel"], folder);
+  if (!top) return null;
+  const root = top.trim();
+  const output = await run(
+    ["status", "--porcelain=v1", "-z", "--untracked-files=all"],
+    root,
+  );
+  if (output === null) return null;
+  const entries: ScmEntry[] = [];
+  const parts = output.split("\0");
+  for (let index = 0; index < parts.length; index++) {
+    const entry = parts[index];
+    if (entry.length < 4) continue;
+    const [x, y] = [entry[0], entry[1]];
+    const path = join(root, entry.slice(3));
+    if (x === "R" || x === "C") index++;
+    if (x === "?" && y === "?") {
+      entries.push({ path, state: "untracked", staged: false });
+      continue;
+    }
+    if (x !== " " && x !== "?")
+      entries.push({ path, state: stateOf(x, " "), staged: true });
+    if (y !== " ")
+      entries.push({ path, state: stateOf(" ", y), staged: false });
+  }
+  return { root, entries };
+};
+
+/**
+ * Runs a Source Control action: stage, unstage, discard or commit.
+ * @param root the repository
+ * @param args git's arguments
+ * @returns git's error output when it fails, `null` on success
+ */
+export const scmAction = (root: string, args: string[]) =>
+  new Promise<string | null>((resolve) =>
+    execFile(
+      "git",
+      args,
+      { cwd: root, maxBuffer: 16 * 1024 * 1024 },
+      (error, _stdout, stderr) =>
+        resolve(error ? stderr.trim() || error.message : null),
+    ),
+  );
