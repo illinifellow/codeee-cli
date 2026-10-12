@@ -49,6 +49,7 @@ import {
   type Row,
 } from "@/files";
 import { DocumentHighlight, SyntaxHighlighter } from "@/highlight";
+import { readGitStatus, type GitStatus } from "@/git";
 import { Icons } from "@/icons";
 import { bindingOf, type KeyEvent } from "@/keys";
 import { commentOf, languageOf } from "@/languages";
@@ -179,6 +180,9 @@ interface Command {
 
 let nextTabId = 1;
 
+/** How often git's status is read again, for commits and staging made elsewhere (the watcher skips `.git`). */
+const GIT_POLL_MS = 3000;
+
 const relativeTo = (root: string, path: string) =>
   relative(root, path) || basename(path);
 
@@ -207,6 +211,11 @@ export class Workbench {
   };
   status: Status | null = null;
   update: string | null = null;
+  /** Git's decorations for the explorer; `null` outside a repository. */
+  git: GitStatus | null = null;
+  private gitReading = false;
+  private gitTimer: ReturnType<typeof setInterval> | null = null;
+  private gitAgain = false;
   /** Counts changes, for the screen's subscription. */
   changes = 0;
   /** Restarts codeee in place after an update; set by the entry point. */
@@ -239,6 +248,8 @@ export class Workbench {
   ) {
     this.config = loadConfig();
     this.tree = new FileTree(root, this.config.settings.exclude);
+    this.refreshGit();
+    this.gitTimer = setInterval(() => this.refreshGit(), GIT_POLL_MS);
     this.watcher = watchFolder(
       root,
       this.config.settings.exclude,
@@ -253,6 +264,24 @@ export class Workbench {
       : -1;
     if (active >= 0) this.active = active;
     if (!this.tabs.length) this.focus = "explorer";
+  }
+
+  /** Reads git's status again in the background; a request during a read runs once more after it. */
+  refreshGit() {
+    if (this.gitReading) {
+      this.gitAgain = true;
+      return;
+    }
+    this.gitReading = true;
+    void readGitStatus(this.root).then((status) => {
+      this.git = status;
+      this.gitReading = false;
+      this.changed();
+      if (this.gitAgain) {
+        this.gitAgain = false;
+        this.refreshGit();
+      }
+    });
   }
 
   /** @param listener called after every change; returns the function that stops it */
@@ -570,6 +599,7 @@ export class Workbench {
     try {
       tab.modified = writeText(tab.path, tab.document.text());
       tab.document.markSaved();
+      this.refreshGit();
       this.tree.refresh();
       this.files = null;
       if (tab.path === userSettingsPath()) this.reloadConfig();
@@ -591,6 +621,7 @@ export class Workbench {
     const leave = () => {
       this.saveSession();
       this.watcher?.close();
+      if (this.gitTimer) clearInterval(this.gitTimer);
       this.onQuit();
     };
     if (!dirty.length) return leave();
@@ -637,6 +668,7 @@ export class Workbench {
   /** Something changed on disk: refreshes the explorer and reloads open files that have no unsaved changes. */
   private changedOnDisk(paths: string[]) {
     this.tree.refresh();
+    this.refreshGit();
     this.files = null;
     for (const tab of this.tabs) {
       if (!tab.path || !tab.document || !paths.includes(tab.path)) continue;

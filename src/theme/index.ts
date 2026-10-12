@@ -1,9 +1,11 @@
 /**
  * Themes: every colour, glyph and spacing value codeee draws with, as named
- * tokens. The themes live in `config/settings.json`: golden-brown and
- * milk-and-honey ship, VS Code's Dark Modern and Light Modern with the
- * author's colour customizations laid over them. `auto` picks one by the
- * terminal's background, `vscode` takes the theme VS Code runs. Themes can be
+ * tokens. The themes live in `config/settings.json`: golden-brown (dark, warm
+ * orange on brown, drawn on the terminal's background) and milk-and-honey
+ * (light, milky with amber), the palettes of gittt; their code colours come
+ * from the VS Code theme in use and from light-plus. `auto` picks one by the
+ * terminal's background, `vscode` takes every colour from the theme VS Code
+ * runs. Themes can be
  * changed or added in the user settings: a theme of the user's own names the
  * theme it `extends` (golden-brown when it names none) and everything it leaves
  * out comes from there. The `tokens` section is laid over the result, value by

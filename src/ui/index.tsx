@@ -15,7 +15,8 @@ import {
 } from "react";
 import { fieldView, type Field } from "@/field";
 import { useKeys } from "@/keys";
-import { languageName } from "@/languages";
+import { GIT_LETTERS, isIgnored } from "@/git";
+import { languageName, languageOf } from "@/languages";
 import { Clickable } from "@/mouse/regions";
 import { fit, widthOf } from "@/text";
 import { availableUpdate, installUpdate } from "@/update";
@@ -55,6 +56,15 @@ export const FieldText = ({
     return (
       <Text backgroundColor={palette.field} color={palette.text}>
         {fit(state.value, width)}
+      </Text>
+    );
+  if (state.selected)
+    return (
+      <Text backgroundColor={palette.field} color={palette.text}>
+        <Text backgroundColor={palette.selection}>
+          {fit(state.value, Math.min(width, widthOf(state.value)))}
+        </Text>
+        {" ".repeat(Math.max(0, width - widthOf(state.value)))}
       </Text>
     );
   const [before, under, after] = fieldView(state, width - 1);
@@ -318,7 +328,7 @@ const Explorer = ({
   height: number;
   version: number;
 }) => {
-  const { colors: palette, spacing } = useTheme();
+  const { colors: palette, glyphs, spacing } = useTheme();
   const rows = workbench.explorerRows();
   const visible = Math.max(1, height - 2);
   const focused = workbench.focus === "explorer";
@@ -343,7 +353,7 @@ const Explorer = ({
       const index = top + offset;
       const icon = row.folder
         ? workbench.icons.folder(row.name, row.expanded)
-        : workbench.icons.file(row.name, null);
+        : workbench.icons.file(row.name, languageOf(row.path));
       const selected = index === workbench.explorerCursor;
       const background =
         selected && focused
@@ -352,11 +362,43 @@ const Explorer = ({
             ? palette.selectionInactive
             : undefined;
       const indent = " ".repeat(1 + row.depth * spacing.indent);
-      const mark = dirty.has(row.path) ? ` ${"●"}` : "";
+      const git = workbench.git;
+      const state = git
+        ? row.folder
+          ? git.folders.get(row.path)
+          : git.files.get(row.path)
+        : undefined;
+      const ignored = git ? isIgnored(git, row.path) : false;
+      const gitColor = state
+        ? {
+            modified: palette.modified,
+            added: palette.added,
+            untracked: palette.added,
+            renamed: palette.added,
+            deleted: palette.danger,
+            conflicted: palette.danger,
+            ignored: palette.textMuted,
+          }[state]
+        : undefined;
+      const badge = state
+        ? row.folder
+          ? glyphs.dirty
+          : GIT_LETTERS[state]
+        : "";
+      const unsaved = dirty.has(row.path) ? glyphs.dirty : "";
+      const right = [unsaved, badge].filter(Boolean).join(" ");
       const name = fit(
-        `${row.name}`,
-        Math.max(1, width - widthOf(indent) - 2 - widthOf(mark)),
+        row.name,
+        Math.max(1, width - widthOf(indent) - 3 - widthOf(right)),
       );
+      const nameColor = dirty.has(row.path)
+        ? palette.modified
+        : (gitColor ??
+          (ignored
+            ? palette.textMuted
+            : row.folder
+              ? palette.folder
+              : palette.text));
       return (
         <Clickable
           key={row.path}
@@ -374,23 +416,19 @@ const Explorer = ({
           <Text backgroundColor={background}>
             <Text>{indent}</Text>
             <Text
-              color={icon.color ?? (row.folder ? palette.folder : palette.icon)}
+              color={
+                ignored
+                  ? palette.textMuted
+                  : (icon.color ?? (row.folder ? palette.folder : palette.icon))
+              }
             >
               {icon.glyph}
             </Text>
             <Text> </Text>
-            <Text
-              color={
-                dirty.has(row.path)
-                  ? palette.modified
-                  : row.folder
-                    ? palette.folder
-                    : palette.text
-              }
-            >
-              {name}
+            <Text color={nameColor}>{name}</Text>
+            <Text color={unsaved ? palette.modified : gitColor}>
+              {right ? ` ${right} ` : " "}
             </Text>
-            <Text color={palette.modified}>{mark}</Text>
           </Text>
         </Clickable>
       );

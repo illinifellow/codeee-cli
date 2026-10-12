@@ -11,10 +11,20 @@ import { graphemes } from "@/text";
 export interface Field {
   value: string;
   cursor: number;
+  /** The whole value is selected: typing replaces it, as in a find field VS Code fills from the selection. */
+  selected?: boolean;
 }
 
-/** @returns a field holding `value` with the cursor at its end */
-export const field = (value = ""): Field => ({ value, cursor: value.length });
+/**
+ * @param value the text
+ * @param selected select it all, so typing replaces it
+ * @returns a field holding `value` with the cursor at its end
+ */
+export const field = (value = "", selected = false): Field => ({
+  value,
+  cursor: value.length,
+  selected: selected && value.length > 0,
+});
 
 const wordLeft = (value: string, cursor: number) => {
   let index = cursor;
@@ -43,6 +53,32 @@ const next = (value: string, cursor: number) =>
  * @returns the changed field, or `null` when the key is not one a field handles (Enter, Esc, Tab, ↑ ↓ and chords)
  */
 export const editField = (state: Field, key: KeyEvent): Field | null => {
+  if (state.selected) {
+    if (["text", "paste", "backspace", "delete"].includes(key.name))
+      return editField(
+        { value: "", cursor: 0 },
+        key.name === "text" || key.name === "paste"
+          ? key
+          : { ...key, name: "end" },
+      );
+    if (["left", "right", "home", "end"].includes(key.name))
+      return (
+        editField(
+          {
+            value: state.value,
+            cursor:
+              key.name === "left" || key.name === "home"
+                ? 0
+                : state.value.length,
+          },
+          { ...key, name: "end", ctrl: false, alt: false },
+        ) && {
+          value: state.value,
+          cursor:
+            key.name === "left" || key.name === "home" ? 0 : state.value.length,
+        }
+      );
+  }
   const { value, cursor } = state;
   const word = key.ctrl || key.alt;
   switch (key.name) {
