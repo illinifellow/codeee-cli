@@ -783,6 +783,21 @@ const StatusBar = ({
         ["UTF-8", undefined],
         [document.eol === "\n" ? "LF" : "CRLF", undefined],
         [languageName(tab!.language), undefined],
+        ...(tab?.diagnostics?.length
+          ? ([
+              [
+                `✖ ${tab.diagnostics.filter((problem) => problem.severity === "error").length} ⚠ ${tab.diagnostics.filter((problem) => problem.severity === "warning").length}`,
+                () => {
+                  const next =
+                    tab.diagnostics!.find(
+                      (problem) => problem.line > document.cursor.line,
+                    ) ?? tab.diagnostics![0];
+                  document.setCursor({ line: next.line, column: next.start });
+                  workbench.afterEdit();
+                },
+              ],
+            ] as [string, (() => void) | undefined][])
+          : []),
       ]
     : [];
   return (

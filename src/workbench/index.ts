@@ -50,6 +50,7 @@ import {
 } from "@/files";
 import { DocumentHighlight, SyntaxHighlighter } from "@/highlight";
 import { formatText } from "@/format";
+import { lintText, type Diagnostic } from "@/lint";
 import {
   replaceInFile,
   searchFolder,
@@ -90,6 +91,11 @@ export interface Tab {
   notice: string | null;
   /** A format before saving is running. */
   formatting?: boolean;
+  /** ESLint's problems for the text as it is now. */
+  diagnostics?: Diagnostic[];
+  /** Pending lint and auto save. */
+  lintTimer?: ReturnType<typeof setTimeout>;
+  saveTimer?: ReturnType<typeof setTimeout>;
   /** Modification time when last read or written, to tell changes made elsewhere. */
   modified: number;
 }
@@ -484,6 +490,13 @@ export class Workbench {
         limits.highlightMaxLines,
         () => this.changed(),
       );
+    if (document) {
+      document.onChange(() => {
+        this.lint(tab);
+        this.scheduleAutoSave(tab);
+      });
+      this.lint(tab);
+    }
     return tab;
   }
 
@@ -535,6 +548,14 @@ export class Workbench {
 
   /** @param index the tab to show */
   activate(index: number) {
+    const previous = this.tab;
+    if (
+      this.config.settings.autoSave === "onFocusChange" &&
+      previous?.document?.dirty &&
+      previous.path &&
+      index !== this.active
+    )
+      this.save(this.active);
     if (!this.tabs[index]) return;
     this.active = index;
     const tab = this.tabs[index];
@@ -1266,6 +1287,33 @@ export class Workbench {
       this.blame = { path, line, version, text };
       this.changed();
     }, BLAME_DELAY_MS);
+  }
+
+  /**
+   * Lints a tab's text with the project's ESLint a moment after the last change; the result is dropped when the text
+   * changed meanwhile.
+   */
+  lint(tab: Tab) {
+    const document = tab.document;
+    if (!tab.path || !document || !this.config.settings.eslint) return;
+    if (tab.lintTimer) clearTimeout(tab.lintTimer);
+    tab.lintTimer = setTimeout(async () => {
+      const version = document.version;
+      const diagnostics = await lintText(tab.path!, document.text());
+      if (document.version !== version) return;
+      tab.diagnostics = diagnostics;
+      this.changed();
+    }, this.config.limits.lintDelayMs);
+  }
+
+  /** Saves a changed file after a pause, when `autoSave` is `afterDelay`, as VS Code's `files.autoSave`. */
+  private scheduleAutoSave(tab: Tab) {
+    if (this.config.settings.autoSave !== "afterDelay" || !tab.path) return;
+    if (tab.saveTimer) clearTimeout(tab.saveTimer);
+    tab.saveTimer = setTimeout(() => {
+      const index = this.tabs.indexOf(tab);
+      if (index >= 0 && tab.document?.dirty) this.save(index);
+    }, this.config.limits.autoSaveDelayMs);
   }
 
   /** After the text or cursor changed: keeps the cursor in view and the find results current. */

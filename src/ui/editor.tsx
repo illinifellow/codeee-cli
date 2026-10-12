@@ -197,6 +197,8 @@ const codeRow = (
     brackets: number[];
     cursor: number | null;
     lineBackground?: string;
+    /** Ranges ESLint reported on the line, drawn underlined. */
+    underlines: { start: number; end: number }[];
     /** Colours of brackets by column, by nesting depth. */
     bracketColors: Map<number, string>;
     /** Cells where indent guides are drawn, inside the leading blanks. */
@@ -293,7 +295,11 @@ const codeRow = (
         background,
         bold: segment?.bold,
         italic: segment?.italic,
-        underline: segment?.underline,
+        underline:
+          segment?.underline ||
+          options.underlines.some(
+            (range) => column >= range.start && column < range.end,
+          ),
       });
       used += Math.min(end, left + width) - Math.max(placed.start, left);
     }
@@ -428,6 +434,9 @@ export const CodeView = memo(
         continue;
       }
       const current = line === document.cursor.line;
+      const problems = (tab.diagnostics ?? []).filter(
+        (problem) => problem.line <= line && problem.endLine >= line,
+      );
       const lineBackground =
         current && settings.highlightLine && !selection
           ? palette.lineHighlight
@@ -486,11 +495,24 @@ export const CodeView = memo(
           swatches: settings.colorDecorators
             ? colorSwatches(document.lines[line])
             : [],
-          after:
-            current &&
-            blame?.text &&
-            blame.line === line &&
-            blame.path === tab.path
+          underlines: problems.map((problem) => ({
+            start: problem.line === line ? problem.start : 0,
+            end:
+              problem.endLine === line
+                ? Math.max(problem.end, problem.start + 1)
+                : document.lines[line].length,
+          })),
+          after: problems.length
+            ? {
+                text: `${problems[0].message}${problems.length > 1 ? ` (+${problems.length - 1})` : ""}`,
+                color: problems.some((problem) => problem.severity === "error")
+                  ? palette.danger
+                  : palette.warning,
+              }
+            : current &&
+                blame?.text &&
+                blame.line === line &&
+                blame.path === tab.path
               ? { text: blame.text, color: palette.gutter }
               : undefined,
           colors: palette,

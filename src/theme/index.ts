@@ -29,8 +29,10 @@ export interface ColorTokens {
   header: string;
   /** Input fields. */
   field: string;
-  /** Errors, warnings and dangerous buttons. */
+  /** Errors and dangerous buttons. */
   danger: string;
+  /** Warnings. */
+  warning: string;
   lineHighlight: string;
   gutter: string;
   gutterActive: string;
@@ -214,6 +216,7 @@ export const editorColors = (
     ),
     field: pick(base.field, "input.background"),
     danger: pick(base.danger, "errorForeground", "editorError.foreground"),
+    warning: pick(base.warning, "editorWarning.foreground"),
     lineHighlight: pick(
       base.lineHighlight,
       "editor.lineHighlightBackground",
