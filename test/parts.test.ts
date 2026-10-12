@@ -205,3 +205,18 @@ describe("snippets", () => {
     expect(second.cursor).toBe(35);
   });
 });
+
+describe("emmet", () => {
+  it("expands nested and repeated elements with numbering, and leaves code alone", async () => {
+    const { expandEmmet } = await import("@/emmet");
+    const options = { jsx: false, indent: "", unit: "  " };
+    expect(expandEmmet("ul>li.item$*2", options)).toEqual({
+      text: '<ul>\n  <li class="item1"></li>\n  <li class="item2"></li>\n</ul>',
+      cursor: 25,
+    });
+    expect(expandEmmet("div#main.card", { ...options, jsx: true })?.text).toBe(
+      '<div id="main" className="card"></div>',
+    );
+    expect(expandEmmet("user.name", options)).toBeNull();
+  });
+});

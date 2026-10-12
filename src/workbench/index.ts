@@ -50,10 +50,12 @@ import {
   type Row,
 } from "@/files";
 import { DocumentHighlight, SyntaxHighlighter } from "@/highlight";
+import { expandEmmet } from "@/emmet";
+import { foldEnd, foldsHiding, visibleLines } from "@/folding";
 import { formatText } from "@/format";
 import { lintText, type Diagnostic } from "@/lint";
 import { expandSnippet, findSnippet, loadSnippets } from "@/snippets";
-import { fileSymbols } from "@/symbols";
+import { fileSymbols, type FileSymbol } from "@/symbols";
 import {
   replaceInFile,
   searchFolder,
@@ -70,8 +72,8 @@ import {
   type LineChange,
 } from "@/git";
 import { Icons } from "@/icons";
-import { bindingOf, type KeyEvent } from "@/keys";
-import { commentOf, languageOf } from "@/languages";
+import { bindingOf, optionChord, type KeyEvent } from "@/keys";
+import { allLanguages, commentOf, languageOf } from "@/languages";
 import {
   parseValue,
   pageRows,
@@ -103,6 +105,8 @@ export interface Tab {
   notice: string | null;
   /** A format before saving is running. */
   formatting?: boolean;
+  /** Lines whose blocks are folded. */
+  folds?: Set<number>;
   /** How lines differ from the last commit, for the gutter. */
   changes?: Map<number, LineChange>;
   /** ESLint's problems for the text as it is now. */
@@ -238,6 +242,9 @@ let nextTabId = 1;
 /** How often git's status is read again, for commits and staging made elsewhere (the watcher skips `.git`). */
 const GIT_POLL_MS = 3000;
 
+/** Letters typed in the explorer within this many milliseconds form one name to jump to. */
+const TYPE_TO_FIND_MS = 800;
+
 /** How long the cursor rests on a line before its blame is read, as GitLens waits. */
 const BLAME_DELAY_MS = 250;
 
@@ -293,6 +300,10 @@ export class Workbench {
     error: null,
   };
   private searchAbort: AbortController | null = null;
+  /** Letters typed in the explorer to jump to a name, as VS Code's keyboard navigation. */
+  private typed = { text: "", time: 0 };
+  /** Files of closed tabs, newest last, for Reopen Closed Editor. */
+  private closed: string[] = [];
   private searchTimer: ReturnType<typeof setTimeout> | null = null;
   update: string | null = null;
   /** The blame shown at the end of the cursor line, for one file, line and text version. */
@@ -505,7 +516,17 @@ export class Workbench {
         () => this.changed(),
       );
     if (document) {
-      document.onChange(() => {
+      document.onChange((start, removed, inserted) => {
+        if (tab.folds?.size)
+          tab.folds = new Set(
+            [...tab.folds].flatMap((line) =>
+              line < start
+                ? [line]
+                : line >= start + removed
+                  ? [line + inserted - removed]
+                  : [],
+            ),
+          );
         this.lint(tab);
         this.scheduleAutoSave(tab);
       });
@@ -519,6 +540,7 @@ export class Workbench {
     return {
       autoIndent: settings.autoIndent,
       autoClosingBrackets: settings.autoClosingBrackets,
+      autoClosingTags: settings.autoClosingBrackets,
       typingGroupMs: limits.typingGroupMs,
       undoSteps: limits.undoSteps,
     };
@@ -639,6 +661,7 @@ export class Workbench {
 
   private discard(index: number) {
     const [tab] = this.tabs.splice(index, 1);
+    if (tab.path) this.closed.push(tab.path);
     tab.highlight?.dispose();
     this.remember(tab);
     if (this.active >= index) this.active = Math.max(0, this.active - 1);
@@ -1102,9 +1125,29 @@ export class Workbench {
         return row?.folder ? move(this.explorerCursor + 1) : undefined;
       case "enter":
         return this.openRow(this.explorerCursor);
-      case "text":
-        if (key.text === " ") return this.openRow(this.explorerCursor, true);
-        break;
+      case "text": {
+        if (key.text === " " && !this.typed.text)
+          return this.openRow(this.explorerCursor, true);
+        const now = Date.now();
+        this.typed = {
+          text:
+            (now - this.typed.time < TYPE_TO_FIND_MS ? this.typed.text : "") +
+            key.text!.toLowerCase(),
+          time: now,
+        };
+        const order = [...rows.keys()].map(
+          (offset) =>
+            (this.explorerCursor +
+              (this.typed.text.length > 1 ? 0 : 1) +
+              offset) %
+            rows.length,
+        );
+        const found = order.find((index) =>
+          rows[index].name.toLowerCase().startsWith(this.typed.text),
+        );
+        if (found !== undefined) move(found);
+        return;
+      }
       case "f2":
         return row && this.renameInExplorer(row.path);
       case "delete":
@@ -1358,6 +1401,254 @@ export class Workbench {
     }, this.config.limits.lintDelayMs);
   }
 
+  private symbolCache = new WeakMap<
+    Tab,
+    { version: number; symbols: FileSymbol[] }
+  >();
+
+  /** @returns the symbols of a tab's file, read once per text version */
+  symbolsOf(tab: Tab): FileSymbol[] {
+    const document = tab.document;
+    if (!document) return [];
+    const cached = this.symbolCache.get(tab);
+    if (cached?.version === document.version) return cached.symbols;
+    const symbols = fileSymbols(document.lines, tab.language);
+    this.symbolCache.set(tab, { version: document.version, symbols });
+    return symbols;
+  }
+
+  /**
+   * Goes to where the word at the cursor is declared, as F12 does: a symbol of this file first, then a declaration
+   * found across the folder (function, class, interface, type, const, let, var, def).
+   */
+  async goToDefinition() {
+    const tab = this.tab;
+    const document = tab?.document;
+    const word = document?.wordAt(document.cursor);
+    if (!tab || !document || !word) return;
+    const name = document.lines[word[0].line].slice(
+      word[0].column,
+      word[1].column,
+    );
+    const own = this.symbolsOf(tab).find(
+      (symbol) => symbol.name === name && symbol.line !== document.cursor.line,
+    );
+    if (own) {
+      document.setCursor({
+        line: own.line,
+        column: Math.max(0, document.lines[own.line].indexOf(name)),
+      });
+      this.reveal(true);
+      return this.changed();
+    }
+    this.say(`Looking for the definition of '${name}'…`);
+    const escaped = name.replace(/[$]/g, "\\$");
+    const query = `(?:function\\*?|class|interface|type|enum|const|let|var|def|fn|struct)\\s+${escaped}\\b`;
+    const results = await searchFolder(
+      this.root,
+      {
+        query,
+        include: "",
+        exclude: "",
+        caseSensitive: true,
+        regex: true,
+        wholeWord: false,
+      },
+      {
+        exclude: [
+          ...this.config.settings.exclude,
+          ...this.config.settings.searchExclude,
+        ],
+        maxFiles: this.config.limits.quickOpenFiles,
+        maxMatches: 20,
+        maxBytes: this.config.limits.maxFileMegabytes * 1024 * 1024,
+      },
+    ).catch(() => []);
+    const found = results[0];
+    if (!found) return this.say(`No definition found for '${name}'`);
+    const match = found.matches[0];
+    this.open(found.path, {
+      line: match.line,
+      column: match.text.indexOf(name, match.start),
+    });
+    this.say(
+      results.length > 1 || found.matches.length > 1
+        ? `${results.reduce((total, result) => total + result.matches.length, 0)} definitions; showing the first`
+        : `Definition of '${name}'`,
+    );
+  }
+
+  private visibleCache = new WeakMap<Tab, { key: string; lines: number[] }>();
+
+  /** @returns the lines of a tab left on screen by its folds, computed once per text version and fold set */
+  visibleOf(tab: Tab): number[] {
+    const document = tab.document;
+    if (!document) return [];
+    const key = `${document.version}:${[...(tab.folds ?? [])].join(",")}`;
+    const cached = this.visibleCache.get(tab);
+    if (cached?.key === key) return cached.lines;
+    const lines = tab.folds?.size
+      ? visibleLines(document.lines, tab.folds)
+      : document.lines.map((_line, index) => index);
+    this.visibleCache.set(tab, { key, lines });
+    return lines;
+  }
+
+  /**
+   * Folds or unfolds the block a line opens; on a line inside a block, the nearest block around it.
+   * @param line the line; the cursor's when absent
+   */
+  toggleFold(line = this.tab?.document?.cursor.line) {
+    const tab = this.tab;
+    const document = tab?.document;
+    if (!tab || !document || line === undefined) return;
+    tab.folds ??= new Set();
+    if (tab.folds.has(line)) tab.folds.delete(line);
+    else {
+      let start = line;
+      while (start >= 0 && (foldEnd(document.lines, start) ?? -1) < line)
+        start--;
+      if (start < 0) return this.say("Nothing to fold here");
+      tab.folds.add(start);
+      if (document.cursor.line > start)
+        document.setCursor({ line: start, column: document.cursor.column });
+    }
+    this.afterEdit();
+  }
+
+  /** Folds every block at the outermost foldable levels, or unfolds all. */
+  foldAll(fold: boolean) {
+    const tab = this.tab;
+    const document = tab?.document;
+    if (!tab || !document) return;
+    tab.folds = new Set();
+    if (fold)
+      for (let line = 0; line < document.lines.length; line++) {
+        const end = foldEnd(document.lines, line);
+        if (end === null || line === 0) continue;
+        tab.folds.add(line);
+        line = end;
+      }
+    document.setCursor({
+      line: Math.min(document.cursor.line, document.lines.length - 1),
+      column: 0,
+    });
+    this.afterEdit();
+  }
+
+  /** Renames the word at the cursor everywhere in the file, as F2 does for a symbol, matching whole words and case. */
+  renameSymbol() {
+    const document = this.tab?.document;
+    const word = document?.wordAt(document.cursor);
+    if (!document || !word) return this.say("The element can't be renamed.");
+    const name = document.lines[word[0].line].slice(
+      word[0].column,
+      word[1].column,
+    );
+    this.ask({
+      title: `Rename '${name}'`,
+      message: "Every whole-word occurrence in this file is renamed.",
+      input: field(name, true),
+      buttons: [
+        {
+          label: "Rename",
+          primary: true,
+          run: (value) => {
+            const next = value.trim();
+            if (!/^[\p{L}_$][\p{L}\p{N}_$]*$/u.test(next))
+              return `'${next}' is not a valid name.`;
+            const options = {
+              caseSensitive: true,
+              regex: false,
+              wholeWord: true,
+            };
+            const count = document.replaceMatches(
+              document.find(name, options),
+              next,
+            );
+            this.say(
+              `Renamed ${count} occurrence${count === 1 ? "" : "s"} of '${name}' to '${next}'`,
+            );
+            this.afterEdit();
+          },
+        },
+        { label: "Cancel", run: () => undefined },
+      ],
+    });
+  }
+
+  /** Lets the user pick the active file's language mode, as the status bar's language item does. */
+  pickLanguage() {
+    const tab = this.tab;
+    if (!tab?.document) return;
+    this.palette = {
+      field: field(),
+      cursor: 0,
+      placeholder: "Select Language Mode",
+      items: [],
+    };
+    this.paletteSource = (query) =>
+      allLanguages()
+        .flatMap((language) => {
+          const match = fuzzyMatch(language.name, query);
+          return match
+            ? [
+                {
+                  label: language.name,
+                  detail: language.id,
+                  positions: match.positions,
+                  score: match.score,
+                  run: () => {
+                    tab.language = language.id;
+                    tab.highlight?.dispose();
+                    tab.highlight = new DocumentHighlight(
+                      tab.document!,
+                      language.id,
+                      this.highlighter,
+                      this.config.limits.highlightChunkLines,
+                      this.config.limits.highlightMaxLines,
+                      () => this.changed(),
+                    );
+                  },
+                },
+              ]
+            : [];
+        })
+        .sort((a, b) => (query ? b.score - a.score : 0));
+    this.filterPalette();
+    this.changed();
+  }
+
+  /** Lets the user pick tabs or spaces and the indent size of the active file. */
+  pickIndentation() {
+    const document = this.tab?.document;
+    if (!document) return;
+    this.palette = {
+      field: field(),
+      cursor: 0,
+      placeholder: "Select Indentation",
+      items: [],
+    };
+    this.paletteSource = () =>
+      [
+        ...[2, 4, 8].map((size) => ({ useTabs: false, size })),
+        ...[2, 4, 8].map((size) => ({ useTabs: true, size })),
+      ].map((indentation) => ({
+        label: indentation.useTabs
+          ? `Indent Using Tabs, Tab Size ${indentation.size}`
+          : `Indent Using Spaces, ${indentation.size}`,
+        run: () => void (document.indentation = indentation),
+      }));
+    this.filterPalette();
+    this.changed();
+  }
+
+  /** Opens the most recently closed tab again. */
+  reopenClosed() {
+    const path = this.closed.pop();
+    if (path) this.open(path);
+  }
+
   /** Moves the cursor to the next or previous ESLint problem, wrapping around, and shows its message. */
   stepProblem(step: 1 | -1) {
     const tab = this.tab;
@@ -1418,7 +1709,7 @@ export class Workbench {
     if (!word) return false;
     loadSnippets();
     const snippet = findSnippet(tab.language, word);
-    if (!snippet) return false;
+    if (!snippet) return this.expandAbbreviation();
     const unit = document.indentation.useTabs
       ? "\t"
       : " ".repeat(document.indentation.size);
@@ -1441,8 +1732,57 @@ export class Workbench {
     return true;
   }
 
+  /**
+   * Expands an Emmet abbreviation before the cursor in HTML-like files and JSX, as VS Code does on Tab.
+   * @returns whether one was expanded
+   */
+  private expandAbbreviation() {
+    const tab = this.tab;
+    const document = tab?.document;
+    const markup = ["html", "vue", "svelte", "astro", "xml", "php"];
+    const jsx = ["jsx", "tsx"];
+    if (
+      !tab ||
+      !document ||
+      !tab.language ||
+      ![...markup, ...jsx].includes(tab.language)
+    )
+      return false;
+    const { line, column } = document.cursor;
+    const before = document.lines[line].slice(0, column);
+    const abbreviation = /[\w.#>+^*$\-[\]="' {}]+$/
+      .exec(before)?.[0]
+      ?.trimStart();
+    if (!abbreviation) return false;
+    const unit = document.indentation.useTabs
+      ? "\t"
+      : " ".repeat(document.indentation.size);
+    const expanded = expandEmmet(abbreviation, {
+      jsx: jsx.includes(tab.language),
+      indent: indentOf(document.lines[line]),
+      unit,
+    });
+    if (!expanded) return false;
+    const start = { line, column: column - abbreviation.length };
+    document.replace(start, document.cursor, expanded.text, "edit");
+    const head = expanded.text.slice(0, expanded.cursor).split("\n");
+    document.setCursor({
+      line: line + head.length - 1,
+      column: (head.length === 1 ? start.column : 0) + head.at(-1)!.length,
+    });
+    return true;
+  }
+
   /** After the text or cursor changed: keeps the cursor in view and the find results current. */
   afterEdit() {
+    const tab = this.tab;
+    if (tab?.document && tab.folds?.size)
+      for (const start of foldsHiding(
+        tab.document.lines,
+        tab.folds,
+        tab.document.cursor.line,
+      ))
+        tab.folds.delete(start);
     this.updateMatches(false);
     this.reveal();
     this.changed();
@@ -1523,10 +1863,10 @@ export class Workbench {
     const tab = this.tab;
     const document = tab?.document;
     if (!tab || !document) return null;
-    const line = Math.max(
-      0,
-      Math.min(document.lines.length - 1, tab.scrollTop + row),
-    );
+    const visible = this.visibleOf(tab);
+    const first = visible.findIndex((line) => line >= tab.scrollTop);
+    const line =
+      visible[Math.max(0, Math.min(visible.length - 1, first + row))];
     const column = columnAt(
       document.lines[line],
       Math.max(0, cell - this.gutterWidth(tab) + tab.scrollLeft),
@@ -1557,13 +1897,18 @@ export class Workbench {
         document.right(select, word);
         break;
       case "up":
-        if (key.ctrl && !key.shift) return this.scroll(-1);
-        document.vertical(-1, select);
+      case "down": {
+        const step = key.name === "up" ? -1 : 1;
+        if (key.ctrl && !key.shift) return this.scroll(step);
+        const visible = this.visibleOf(this.tab!);
+        const index = visible.indexOf(document.cursor.line);
+        const target = visible[index + step];
+        document.verticalTo(
+          target ?? (step < 0 ? -1 : document.lines.length),
+          select,
+        );
         break;
-      case "down":
-        if (key.ctrl && !key.shift) return this.scroll(1);
-        document.vertical(1, select);
-        break;
+      }
       case "pageup":
         document.vertical(-page, select);
         this.tab!.scrollTop = Math.max(0, this.tab!.scrollTop - page);
@@ -1612,6 +1957,10 @@ export class Workbench {
       case "\\":
         if (key.ctrl) document.jumpToBracket();
         break;
+      case "f2":
+        return this.renameSymbol();
+      case "f12":
+        return void this.goToDefinition();
       default:
         return;
     }
@@ -1779,7 +2128,7 @@ export class Workbench {
 
   private findKey(key: KeyEvent) {
     const find = this.find!;
-    const binding = bindingOf(key);
+    const binding = optionChord(key) ?? bindingOf(key);
     if (key.name === "escape") {
       this.find = null;
       return;
@@ -1811,6 +2160,7 @@ export class Workbench {
    * @param prefix `""` for files, `:` for a line, `>` for commands
    */
   openPalette(prefix = "") {
+    this.paletteSource = null;
     this.palette = {
       field: field(prefix),
       items: [],
@@ -1826,12 +2176,16 @@ export class Workbench {
     const palette = this.palette!;
     const value = palette.field.value;
     palette.cursor = 0;
+    if (this.paletteSource) {
+      palette.items = this.paletteSource(value.trim());
+      return;
+    }
     if (value.startsWith("@")) {
       const tab = this.tab;
       const document = tab?.document;
       const query = value.slice(1).trim();
       palette.items = document
-        ? fileSymbols(document.lines, tab!.language)
+        ? this.symbolsOf(tab!)
             .flatMap((symbol) => {
               const match = fuzzyMatch(symbol.name, query);
               return match
@@ -1961,18 +2315,24 @@ export class Workbench {
     }));
   }
 
+  /** A list Quick Open shows instead of files, for language and indentation pickers; cleared when it closes. */
+  private paletteSource: ((query: string) => PaletteItem[]) | null = null;
+
   /** Runs a Quick Open entry. */
   choosePalette(index: number) {
     const item = this.palette?.items[index];
     this.palette = null;
+    this.paletteSource = null;
     item?.run();
     this.changed();
   }
 
   private paletteKey(key: KeyEvent) {
     const palette = this.palette!;
-    if (key.name === "escape") this.palette = null;
-    else if (key.name === "enter") this.choosePalette(palette.cursor);
+    if (key.name === "escape") {
+      this.palette = null;
+      this.paletteSource = null;
+    } else if (key.name === "enter") this.choosePalette(palette.cursor);
     else if (key.name === "up")
       palette.cursor = Math.max(0, palette.cursor - 1);
     else if (key.name === "down")
@@ -2378,7 +2738,7 @@ export class Workbench {
   private searchKey(key: KeyEvent) {
     const view = this.search;
     const rows = this.searchRows();
-    const binding = bindingOf(key);
+    const binding = optionChord(key) ?? bindingOf(key);
     if (binding === "alt+c") return this.toggleSearchOption("caseSensitive");
     if (binding === "alt+w") return this.toggleSearchOption("wholeWord");
     if (binding === "alt+r") return this.toggleSearchOption("regex");
@@ -2585,6 +2945,42 @@ export class Workbench {
         run: () => this.openPreview(),
       },
       {
+        action: "reopenClosed",
+        label: "View: Reopen Closed Editor",
+        run: () => this.reopenClosed(),
+      },
+      {
+        action: "toggleFold",
+        label: "Toggle Fold",
+        run: () => this.toggleFold(),
+      },
+      { action: "foldAll", label: "Fold All", run: () => this.foldAll(true) },
+      {
+        action: "unfoldAll",
+        label: "Unfold All",
+        run: () => this.foldAll(false),
+      },
+      {
+        action: "goToDefinition",
+        label: "Go to Definition",
+        run: () => void this.goToDefinition(),
+      },
+      {
+        action: "rename",
+        label: "Rename Symbol",
+        run: () => this.renameSymbol(),
+      },
+      {
+        action: "languageMode",
+        label: "Change Language Mode",
+        run: () => this.pickLanguage(),
+      },
+      {
+        action: "indentation",
+        label: "Change Indentation",
+        run: () => this.pickIndentation(),
+      },
+      {
         action: "goToSymbol",
         label: "Go to Symbol in Editor...",
         run: () => this.openPalette("@"),
@@ -2668,10 +3064,15 @@ export class Workbench {
     else if (this.menu) this.menuKey(key);
     else if (this.palette) this.paletteKey(key);
     else {
-      const binding = bindingOf(key);
-      const action = Object.entries(this.config.keys).find(
-        ([, bound]) => bound === binding,
-      )?.[0];
+      const typed = bindingOf(key);
+      const chord = optionChord(key);
+      const bound = (binding: string | null) =>
+        binding
+          ? Object.entries(this.config.keys).find(
+              ([, value]) => value === binding,
+            )?.[0]
+          : undefined;
+      const action = bound(typed) ?? bound(chord);
       const command =
         action && this.commands().find((entry) => entry.action === action);
       const typing =

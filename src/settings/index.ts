@@ -116,6 +116,18 @@ const KEYS: [string, string, string, string][] = [
   ],
   ["findPrevious", "Edit", "Find Previous", "Go to the previous match."],
   [
+    "toggleFold",
+    "View",
+    "Toggle Fold",
+    "Fold or unfold the block at the cursor.",
+  ],
+  [
+    "reopenClosed",
+    "View",
+    "Reopen Closed Editor",
+    "Open the most recently closed tab again.",
+  ],
+  [
     "markdownPreview",
     "View",
     "Open Markdown Preview",

@@ -18,6 +18,7 @@ import type { Segment } from "@/highlight";
 import { Clickable, type LocalMouseEvent } from "@/mouse/regions";
 import { fit, placeText, widthOf } from "@/text";
 import type { Tab, Workbench } from "@/workbench";
+import { foldEnd } from "@/folding";
 import { stickyLines } from "@/symbols";
 import { useTheme } from "./theme";
 
@@ -275,20 +276,26 @@ const codeRow = (
         placed.source === " " &&
         options.guides.includes(placed.start) &&
         !atCursor;
+      const whitespace =
+        !atCursor &&
+        selected(column) &&
+        (placed.source === " " || placed.source === "\t");
       const visible = guide
         ? options.guide.glyph
-        : placed.start < left || end > left + width
-          ? " ".repeat(
-              Math.min(end, left + width) - Math.max(placed.start, left),
-            )
-          : placed.drawn;
+        : whitespace
+          ? (placed.source === "\t" ? "→" : "·").padEnd(placed.width, " ")
+          : placed.start < left || end > left + width
+            ? " ".repeat(
+                Math.min(end, left + width) - Math.max(placed.start, left),
+              )
+            : placed.drawn;
       push({
         text: visible,
         color: atCursor
           ? colors.cursorText
           : swatch && background === swatch.color
             ? contrastOn(swatch.color)
-            : guide
+            : guide || whitespace
               ? options.guide.color
               : (options.bracketColors.get(column) ??
                 segment?.color ??
@@ -420,10 +427,17 @@ export const CodeView = memo(
           Math.max(0, Math.floor(height / 3)),
         )
       : [];
+    const visible = workbench.visibleOf(tab);
+    const first = Math.max(
+      0,
+      visible.findIndex((line) => line >= tab.scrollTop),
+    );
     const rows: ReactNode[] = [];
     for (let row = 0; row < height; row++) {
       const pinned = row < sticky.length;
-      const line = pinned ? sticky[row] : tab.scrollTop + row;
+      const line = pinned
+        ? sticky[row]
+        : (visible[first + row] ?? Number.MAX_SAFE_INTEGER);
       if (line >= document.lines.length) {
         rows.push(
           <Text key={row}>
@@ -457,8 +471,14 @@ export const CodeView = memo(
           ? String(Math.abs(line - document.cursor.line))
           : String(line + 1);
       const change = tab.changes?.get(line);
+      const folded = tab.folds?.has(line) ?? false;
+      const foldMark = folded
+        ? "▸"
+        : current && foldEnd(document.lines, line) !== null
+          ? "▾"
+          : " ";
       const gutterText = settings.lineNumbers
-        ? ` ${number.padStart(gutter - workbench.theme.spacing.gutterPadding - 1)}${" ".repeat(workbench.theme.spacing.gutterPadding)}`
+        ? `${foldMark}${number.padStart(gutter - workbench.theme.spacing.gutterPadding - 1)}${" ".repeat(workbench.theme.spacing.gutterPadding)}`
         : " ";
       const matches = find
         ? find.matches.flatMap((match, index) =>
@@ -520,12 +540,14 @@ export const CodeView = memo(
                   ? palette.danger
                   : palette.warning,
               }
-            : current &&
-                blame?.text &&
-                blame.line === line &&
-                blame.path === tab.path
-              ? { text: blame.text, color: palette.gutter }
-              : undefined,
+            : folded
+              ? { text: "⋯", color: palette.textMuted }
+              : current &&
+                  blame?.text &&
+                  blame.line === line &&
+                  blame.path === tab.path
+                ? { text: blame.text, color: palette.gutter }
+                : undefined,
           colors: palette,
         },
       );
@@ -571,6 +593,17 @@ export const CodeView = memo(
         height={height}
         flexDirection="column"
         onPress={(event) => {
+          if (event.localX === 0 && event.localY >= sticky.length) {
+            const target = visible[first + event.localY];
+            if (
+              target !== undefined &&
+              (tab.folds?.has(target) ||
+                foldEnd(document.lines, target) !== null)
+            ) {
+              workbench.toggleFold(target);
+              return;
+            }
+          }
           if (event.localY < sticky.length) {
             document.setCursor({ line: sticky[event.localY], column: 0 });
             workbench.focus = "editor";
