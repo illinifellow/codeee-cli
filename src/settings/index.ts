@@ -116,6 +116,24 @@ const KEYS: [string, string, string, string][] = [
   ],
   ["findPrevious", "Edit", "Find Previous", "Go to the previous match."],
   [
+    "goToSymbol",
+    "Go",
+    "Go to Symbol in Editor",
+    "Quick Open with @: the functions, classes, headings and rules of the file.",
+  ],
+  [
+    "nextProblem",
+    "Go",
+    "Next Problem",
+    "Go to the next ESLint problem in the file.",
+  ],
+  [
+    "previousProblem",
+    "Go",
+    "Previous Problem",
+    "Go to the previous ESLint problem in the file.",
+  ],
+  [
     "search",
     "Edit",
     "Find in Files",
@@ -377,6 +395,14 @@ export const SETTINGS: SettingSpec[] = [
     "Cursor",
     "Tab Completion",
     "Expands a snippet's prefix on Tab, with the snippets of your VS Code extensions and your own.",
+    "boolean",
+  ),
+  setting(
+    "settings.stickyScroll",
+    "Text Editor",
+    "Cursor",
+    "Sticky Scroll",
+    "Shows the lines that open the blocks around the top of the editor, pinned while you scroll.",
     "boolean",
   ),
   setting(

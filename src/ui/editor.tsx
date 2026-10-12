@@ -18,6 +18,7 @@ import type { Segment } from "@/highlight";
 import { Clickable, type LocalMouseEvent } from "@/mouse/regions";
 import { fit, placeText, widthOf } from "@/text";
 import type { Tab, Workbench } from "@/workbench";
+import { stickyLines } from "@/symbols";
 import { useTheme } from "./theme";
 
 /** A coloured stretch of a row. */
@@ -412,9 +413,17 @@ export const CodeView = memo(
     tab.highlight?.request(tab.scrollTop + height + 50);
     if (focused) workbench.requestBlame();
     const blame = workbench.blame;
+    const sticky = settings.stickyScroll
+      ? stickyLines(
+          document.lines,
+          tab.scrollTop,
+          Math.max(0, Math.floor(height / 3)),
+        )
+      : [];
     const rows: ReactNode[] = [];
     for (let row = 0; row < height; row++) {
-      const line = tab.scrollTop + row;
+      const pinned = row < sticky.length;
+      const line = pinned ? sticky[row] : tab.scrollTop + row;
       if (line >= document.lines.length) {
         rows.push(
           <Text key={row}>
@@ -433,12 +442,13 @@ export const CodeView = memo(
         );
         continue;
       }
-      const current = line === document.cursor.line;
+      const current = line === document.cursor.line && !pinned;
       const problems = (tab.diagnostics ?? []).filter(
         (problem) => problem.line <= line && problem.endLine >= line,
       );
-      const lineBackground =
-        current && settings.highlightLine && !selection
+      const lineBackground = pinned
+        ? palette.header
+        : current && settings.highlightLine && !selection
           ? palette.lineHighlight
           : undefined;
       const number = !settings.lineNumbers
@@ -561,6 +571,13 @@ export const CodeView = memo(
         height={height}
         flexDirection="column"
         onPress={(event) => {
+          if (event.localY < sticky.length) {
+            document.setCursor({ line: sticky[event.localY], column: 0 });
+            workbench.focus = "editor";
+            workbench.reveal(true);
+            workbench.changed();
+            return;
+          }
           if (map && event.localX >= width - mapWidth) {
             const scrollTo = (localY: number) => {
               tab.scrollTop = Math.max(

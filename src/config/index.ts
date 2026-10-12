@@ -53,6 +53,9 @@ export type KeyBindings = Record<
   | "duplicateLine"
   | "comment"
   | "format"
+  | "goToSymbol"
+  | "nextProblem"
+  | "previousProblem"
   | "search"
   | "replaceInFiles"
   | "moveLineUp"
@@ -113,6 +116,8 @@ export interface EditorSettings {
   guides: boolean;
   /** Shows the minimap at the editor's right edge. */
   minimap: boolean;
+  /** Pins the lines that open the blocks around the top of the editor, as VS Code's sticky scroll. */
+  stickyScroll: boolean;
   /** Lints JavaScript and TypeScript with the project's ESLint and shows the problems at line ends, as Error Lens. */
   eslint: boolean;
   /** Expands snippet prefixes on Tab. */

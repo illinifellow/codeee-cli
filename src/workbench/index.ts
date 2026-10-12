@@ -53,6 +53,7 @@ import { DocumentHighlight, SyntaxHighlighter } from "@/highlight";
 import { formatText } from "@/format";
 import { lintText, type Diagnostic } from "@/lint";
 import { expandSnippet, findSnippet, loadSnippets } from "@/snippets";
+import { fileSymbols } from "@/symbols";
 import {
   replaceInFile,
   searchFolder,
@@ -1323,6 +1324,37 @@ export class Workbench {
     }, this.config.limits.lintDelayMs);
   }
 
+  /** Moves the cursor to the next or previous ESLint problem, wrapping around, and shows its message. */
+  stepProblem(step: 1 | -1) {
+    const tab = this.tab;
+    const document = tab?.document;
+    const problems = [...(tab?.diagnostics ?? [])].sort(
+      (a, b) => a.line - b.line || a.start - b.start,
+    );
+    if (!document || !problems.length)
+      return this.say("No problems have been detected in the file.");
+    const { line, column } = document.cursor;
+    const after = (problem: Diagnostic) =>
+      problem.line > line || (problem.line === line && problem.start > column);
+    const next =
+      step > 0
+        ? (problems.find(after) ?? problems[0])
+        : ([...problems]
+            .reverse()
+            .find(
+              (problem) =>
+                !after(problem) &&
+                (problem.line < line || problem.start < column),
+            ) ?? problems.at(-1)!);
+    document.setCursor({ line: next.line, column: next.start });
+    this.say(
+      `${next.message}${next.rule ? ` eslint(${next.rule})` : ""}`,
+      next.severity === "error",
+    );
+    this.reveal(true);
+    this.changed();
+  }
+
   /** Saves a changed file after a pause, when `autoSave` is `afterDelay`, as VS Code's `files.autoSave`. */
   private scheduleAutoSave(tab: Tab) {
     if (this.config.settings.autoSave !== "afterDelay" || !tab.path) return;
@@ -1750,7 +1782,7 @@ export class Workbench {
       items: [],
       cursor: 0,
       placeholder:
-        "Search files by name (append : to go to line or > to run a command)",
+        "Search files by name (append : to go to line, @ to go to a symbol, > to run a command)",
     };
     this.filterPalette();
     this.changed();
@@ -1760,6 +1792,37 @@ export class Workbench {
     const palette = this.palette!;
     const value = palette.field.value;
     palette.cursor = 0;
+    if (value.startsWith("@")) {
+      const tab = this.tab;
+      const document = tab?.document;
+      const query = value.slice(1).trim();
+      palette.items = document
+        ? fileSymbols(document.lines, tab!.language)
+            .flatMap((symbol) => {
+              const match = fuzzyMatch(symbol.name, query);
+              return match
+                ? [
+                    {
+                      label: symbol.name,
+                      detail: `${symbol.kind}  ${symbol.line + 1}`,
+                      positions: match.positions,
+                      score: match.score,
+                      run: () => {
+                        document.setCursor({
+                          line: symbol.line,
+                          column: indentOf(document.lines[symbol.line]).length,
+                        });
+                        this.focus = "editor";
+                        this.reveal(true);
+                      },
+                    },
+                  ]
+                : [];
+            })
+            .sort((a, b) => (query ? b.score - a.score : 0))
+        : [];
+      return;
+    }
     if (value.startsWith(">")) {
       const query = value.slice(1).trim();
       palette.items = this.commands()
@@ -2481,6 +2544,21 @@ export class Workbench {
         action: "moveLineDown",
         label: "Move Line Down",
         run: () => this.withDocument((document) => document.moveLines(1)),
+      },
+      {
+        action: "goToSymbol",
+        label: "Go to Symbol in Editor...",
+        run: () => this.openPalette("@"),
+      },
+      {
+        action: "nextProblem",
+        label: "Go to Next Problem in Files (Error, Warning, Info)",
+        run: () => this.stepProblem(1),
+      },
+      {
+        action: "previousProblem",
+        label: "Go to Previous Problem in Files (Error, Warning, Info)",
+        run: () => this.stepProblem(-1),
       },
       {
         action: "format",

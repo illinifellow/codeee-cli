@@ -12,6 +12,7 @@
     "bracketPairColorization": true,
     "guides": true,
     "minimap": true,
+    "stickyScroll": true,
     "eslint": true,
     "snippets": true,
     "autoSave": "off",
@@ -94,7 +95,10 @@
     "findPrevious": "shift+f3",
     "format": "alt+shift+f",
     "search": "ctrl+t",
-    "replaceInFiles": "ctrl+alt+t"
+    "replaceInFiles": "ctrl+alt+t",
+    "goToSymbol": "ctrl+]",
+    "nextProblem": "f8",
+    "previousProblem": "shift+f8"
   },
   "themes": {
     "golden-brown": {
