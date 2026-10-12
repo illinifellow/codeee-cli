@@ -192,7 +192,7 @@ export const App = ({
   ];
 
   const applyUpdate = async () => {
-    if (workbench.allTabs().some((open) => open.document?.dirty))
+    if (!workbench.backupAll())
       return workbench.say("Save your files before updating", true);
     workbench.say(`Installing ${workbench.update}…`);
     try {

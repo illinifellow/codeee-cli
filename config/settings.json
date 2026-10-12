@@ -21,6 +21,7 @@
     "eslint": true,
     "snippets": true,
     "autoSave": "off",
+    "hotExit": "onExit",
     "autoIndent": true,
     "autoClosingBrackets": true,
     "trimTrailingWhitespace": false,

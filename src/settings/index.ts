@@ -360,6 +360,28 @@ export const SETTINGS: SettingSpec[] = [
     },
   ),
   setting(
+    "settings.hotExit",
+    "Text Editor",
+    "Files",
+    "Hot Exit",
+    "Controls whether unsaved files are remembered between sessions, allowing the save prompt when exiting the editor to be skipped.",
+    "enum",
+    {
+      choices: [
+        {
+          value: "onExit",
+          description:
+            "Unsaved files are kept when codeee quits or stops, and restored next time.",
+        },
+        {
+          value: "off",
+          description:
+            "Disable hot exit. A prompt will show when attempting to quit with unsaved files.",
+        },
+      ],
+    },
+  ),
+  setting(
     "settings.formatOnSave",
     "Text Editor",
     "Formatting",

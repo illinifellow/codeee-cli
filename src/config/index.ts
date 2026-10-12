@@ -142,6 +142,8 @@ export interface EditorSettings {
   snippets: boolean;
   /** `off`, `afterDelay` or `onFocusChange`, as VS Code's `files.autoSave`. */
   autoSave: string;
+  /** `onExit` keeps unsaved files across quits and crashes without asking, `off` asks on quit, as `files.hotExit`. */
+  hotExit: string;
   autoIndent: boolean;
   autoClosingBrackets: boolean;
   trimTrailingWhitespace: boolean;
@@ -209,6 +211,7 @@ const CHOICES: Record<string, readonly string[]> = {
   "settings.renderWhitespace": ["none", "selection", "all"],
   "settings.showFoldingControls": ["always", "mouseover"],
   "settings.autoSave": ["off", "afterDelay", "onFocusChange"],
+  "settings.hotExit": ["onExit", "off"],
   "settings.iconTheme": ["vscode", "none"],
 };
 

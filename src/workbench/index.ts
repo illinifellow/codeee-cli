@@ -54,6 +54,7 @@ import {
 import { DocumentHighlight, SyntaxHighlighter } from "@/highlight";
 import { expandEmmet } from "@/emmet";
 import { foldEnd, foldsHiding, visibleLines } from "@/folding";
+import { readBackups, removeBackup, writeBackup } from "@/backup";
 import { formatText } from "@/format";
 import { lintText, type Diagnostic } from "@/lint";
 import { expandSnippet, findSnippet, loadSnippets } from "@/snippets";
@@ -120,6 +121,7 @@ export interface Tab {
   /** Pending lint and auto save. */
   lintTimer?: ReturnType<typeof setTimeout>;
   saveTimer?: ReturnType<typeof setTimeout>;
+  backupTimer?: ReturnType<typeof setTimeout>;
   /** Modification time when last read or written, to tell changes made elsewhere. */
   modified: number;
 }
@@ -247,6 +249,9 @@ let nextTabId = 1;
 
 /** How often git's status is read again, for commits and staging made elsewhere (the watcher skips `.git`). */
 const GIT_POLL_MS = 3000;
+
+/** How long after the last edit a file's unsaved text is backed up. */
+const BACKUP_DELAY_MS = 1000;
 
 /** Letters typed in the explorer within this many milliseconds form one name to jump to. */
 const TYPE_TO_FIND_MS = 800;
@@ -480,6 +485,16 @@ export class Workbench {
       ? this.tabs.findIndex((tab) => tab.path === session.active)
       : -1;
     if (active >= 0) this.active = active;
+    for (const backup of readBackups()) {
+      if (!backup.path.startsWith(`${root}/`) || !modifiedTime(backup.path))
+        continue;
+      const before = this.active;
+      this.open(backup.path, { quiet: true });
+      const restored = this.tab?.document;
+      if (restored && restored.text() !== backup.text)
+        restored.setText(backup.text);
+      this.active = before >= 0 ? before : this.active;
+    }
     if (!this.tabs.length) this.focus = "explorer";
   }
 
@@ -664,6 +679,7 @@ export class Workbench {
           );
         this.lint(tab);
         this.scheduleAutoSave(tab);
+        this.scheduleBackup(tab);
       });
       this.lint(tab);
     }
@@ -796,6 +812,12 @@ export class Workbench {
 
   private discard(index: number) {
     const [tab] = this.tabs.splice(index, 1);
+    if (
+      tab.path &&
+      tab.document?.dirty &&
+      !this.allTabs().some((other) => other.document === tab.document)
+    )
+      removeBackup(tab.path);
     if (tab.path) this.closed.push(tab.path);
     tab.highlight?.dispose();
     this.remember(tab);
@@ -908,6 +930,7 @@ export class Workbench {
     try {
       tab.modified = writeText(tab.path, tab.document.text());
       tab.document.markSaved();
+      removeBackup(tab.path);
       this.refreshGit();
       this.tree.refresh();
       this.files = null;
@@ -962,6 +985,18 @@ export class Workbench {
       this.onQuit();
     };
     if (!dirty.length) return leave();
+    if (
+      this.config.settings.hotExit === "onExit" &&
+      dirty.every((tab) => tab.path)
+    ) {
+      for (const tab of dirty)
+        writeBackup({
+          path: tab.path!,
+          text: tab.document!.text(),
+          modified: tab.modified,
+        });
+      return leave();
+    }
     this.ask({
       title:
         dirty.length === 1
@@ -1901,6 +1936,39 @@ export class Workbench {
     );
     this.reveal(true);
     this.changed();
+  }
+
+  /**
+   * Backs up every unsaved file now, before a restart.
+   * @returns whether every unsaved file could be kept (untitled files cannot, nor anything with hot exit off)
+   */
+  backupAll() {
+    if (this.config.settings.hotExit === "off")
+      return !this.allTabs().some((tab) => tab.document?.dirty);
+    for (const tab of this.allTabs())
+      if (tab.path && tab.document?.dirty)
+        writeBackup({
+          path: tab.path,
+          text: tab.document.text(),
+          modified: tab.modified,
+        });
+    return !this.allTabs().some((tab) => !tab.path && tab.document?.dirty);
+  }
+
+  /** Keeps a changed file's text in a backup a moment after the last edit, for hot exit and crashes. */
+  private scheduleBackup(tab: Tab) {
+    if (!tab.path || this.config.settings.hotExit === "off") return;
+    if (tab.backupTimer) clearTimeout(tab.backupTimer);
+    tab.backupTimer = setTimeout(() => {
+      if (!tab.path || !tab.document) return;
+      if (tab.document.dirty)
+        writeBackup({
+          path: tab.path,
+          text: tab.document.text(),
+          modified: tab.modified,
+        });
+      else removeBackup(tab.path);
+    }, BACKUP_DELAY_MS);
   }
 
   /** Saves a changed file after a pause, when `autoSave` is `afterDelay`, as VS Code's `files.autoSave`. */
